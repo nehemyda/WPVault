@@ -1,0 +1,71 @@
+.wpvault-wrap .wpvault-actions {
+	margin: 16px 0;
+	display: flex;
+	gap: 8px;
+}
+
+.wpvault-card {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 16px 20px;
+	margin-bottom: 16px;
+	max-width: 800px;
+}
+
+.wpvault-card h2 {
+	margin-top: 0;
+}
+
+.wpvault-progress {
+	background: #f0f0f1;
+	border-radius: 4px;
+	height: 20px;
+	overflow: hidden;
+	margin: 12px 0;
+}
+
+.wpvault-progress-bar {
+	background: #2271b1;
+	height: 100%;
+	width: 0;
+	transition: width 0.3s ease;
+}
+
+.wpvault-badge {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	background: #f0f0f1;
+	font-size: 12px;
+}
+
+.wpvault-badge-ok {
+	background: #d4f4dd;
+	color: #1a7431;
+}
+
+.wpvault-badge-error {
+	background: #fbe3e1;
+	color: #a52714;
+}
+
+.wpvault-checklist {
+	margin: 0;
+}
+
+.wpvault-checklist li {
+	padding: 4px 0;
+}
+
+.wpvault-check-fail {
+	color: #a52714;
+}
+
+.wpvault-check-ok {
+	color: #1a7431;
+}
+
+.wpvault-status-cell {
+	white-space: nowrap;
+}
