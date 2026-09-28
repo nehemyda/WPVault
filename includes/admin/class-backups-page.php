@@ -164,6 +164,15 @@ class Backups_Page {
 							</label>
 						</p>
 
+						<?php if ( Google_Drive::is_connected() ) : ?>
+							<p>
+								<label>
+									<input type="checkbox" id="wpvault-upload-to-drive">
+									<?php esc_html_e( 'Also save this backup to Google Drive', 'wpvault' ); ?>
+								</label>
+							</p>
+						<?php endif; ?>
+
 						<p>
 							<button type="button" id="wpvault-start-backup" class="button button-primary button-hero">
 								<?php esc_html_e( 'Start Backup', 'wpvault' ); ?>

@@ -47,6 +47,10 @@ class Backups_Controller {
 							'default' => true,
 							'type'    => 'boolean',
 						),
+						'upload_to_drive' => array(
+							'default' => false,
+							'type'    => 'boolean',
+						),
 					),
 				),
 			)
@@ -160,16 +164,18 @@ class Backups_Controller {
 			return new \WP_Error( 'wpvault_preflight_failed', __( 'WPVault cannot start a backup right now -- see the checks below.', 'wpvault' ), array( 'status' => 422, 'checks' => $preflight['checks'] ) );
 		}
 
-		$type          = $request->get_param( 'type' );
-		$exclude_cache = (bool) $request->get_param( 'exclude_cache' );
+		$type            = $request->get_param( 'type' );
+		$exclude_cache   = (bool) $request->get_param( 'exclude_cache' );
+		$upload_to_drive = (bool) $request->get_param( 'upload_to_drive' ) && Google_Drive::is_connected();
 
 		$backup = Backup_Store::create( $type );
 		$job    = Job_Store::create(
 			Job_Store::TYPE_BACKUP,
 			$backup->id,
 			array(
-				'backup_type'   => $type,
-				'exclude_cache' => $exclude_cache,
+				'backup_type'     => $type,
+				'exclude_cache'   => $exclude_cache,
+				'upload_to_drive' => $upload_to_drive,
 			)
 		);
 

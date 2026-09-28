@@ -3,7 +3,7 @@
  * Plugin Name:       WPVault
  * Plugin URI:        https://wpvault.dev
  * Description:       Local WordPress backup, restore and migration. Chunked, resumable, and verified -- built to actually finish and actually restore.
- * Version:           0.9.0
+ * Version:           0.9.1
  * Requires at least: 6.2
  * Requires PHP:      7.4
  * Author:            WPVault
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WPVAULT_VERSION', '0.9.0' );
+define( 'WPVAULT_VERSION', '0.9.1' );
 define( 'WPVAULT_PLUGIN_FILE', __FILE__ );
 define( 'WPVAULT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WPVAULT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

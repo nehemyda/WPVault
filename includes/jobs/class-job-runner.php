@@ -31,6 +31,7 @@ use WPVault\Backup\Manifest;
 use WPVault\Backup\Package_Builder;
 use WPVault\Diagnostics\Log_Store;
 use WPVault\Diagnostics\Preflight;
+use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -163,8 +164,42 @@ class Job_Runner {
 			case Job_Store::STATUS_VERIFYING:
 				return self::do_verifying( $job, $payload, $temp_dir );
 
+			// Reuses Drive_Upload_Job's own phase methods directly -- an
+			// optional final step tacked onto a backup job (§ Google Drive
+			// integration) when the caller (Scheduled_Backups, or the
+			// browser's "Also save to Google Drive" checkbox) asked for it,
+			// entered from do_verifying() below.
+			case Drive_Upload_Job::STATUS_UPLOADING:
+				return self::do_drive_uploading( $job, $payload, $time_budget );
+
 			default:
 				return $job;
+		}
+	}
+
+	/**
+	 * A Drive upload failure must never fail the backup job it's tacked
+	 * onto -- the local backup already succeeded and stays exactly as
+	 * verified either way. Unlike Drive_Upload_Job's own standalone jobs
+	 * (where an upload failure correctly IS the whole job failing), this
+	 * catches it and completes the backup job anyway, just without a
+	 * Drive copy.
+	 */
+	private static function do_drive_uploading( $job, $payload, $time_budget ) {
+		try {
+			return Drive_Upload_Job::do_uploading( $job, $payload, $time_budget );
+		} catch ( \Throwable $e ) {
+			Log_Store::error( $e->getMessage(), 'wpvault_drive_upload_failed', $job->id );
+
+			return Job_Store::checkpoint(
+				$job->id,
+				array(
+					'status'           => Job_Store::STATUS_COMPLETED,
+					'phase'            => Job_Store::STATUS_COMPLETED,
+					'progress_percent' => 100,
+					'current_item'     => __( 'Backup complete (Google Drive upload failed).', 'wpvault' ),
+				)
+			);
 		}
 	}
 
@@ -406,13 +441,28 @@ class Job_Runner {
 		Backup_Store::mark_verified( $backup->id );
 		Log_Store::info( __( 'Backup completed and verified.', 'wpvault' ), 'wpvault_backup_verified', $job->id );
 
+		$drive_upload_failed = false;
+
+		if ( ! empty( $payload['upload_to_drive'] ) && Google_Drive::is_connected() ) {
+			try {
+				return Drive_Upload_Job::begin( $job, $payload );
+			} catch ( \Throwable $e ) {
+				// Same reasoning as do_drive_uploading() -- a failure here
+				// must not fail the backup job; just skip the Drive copy.
+				Log_Store::error( $e->getMessage(), 'wpvault_drive_upload_failed', $job->id );
+				$drive_upload_failed = true;
+			}
+		}
+
 		return Job_Store::checkpoint(
 			$job->id,
 			array(
 				'status'           => Job_Store::STATUS_COMPLETED,
 				'phase'            => Job_Store::STATUS_COMPLETED,
 				'progress_percent' => 100,
-				'current_item'     => __( 'Backup complete.', 'wpvault' ),
+				'current_item'     => $drive_upload_failed
+					? __( 'Backup complete (Google Drive upload failed).', 'wpvault' )
+					: __( 'Backup complete.', 'wpvault' ),
 			)
 		);
 	}

@@ -45,7 +45,12 @@ class Drive_Upload_Job {
 		}
 	}
 
-	private static function begin( $job, $payload ) {
+	/**
+	 * Public (not just called from run_phase() above) so a backup job can
+	 * also enter this same phase directly as its own optional final step --
+	 * see Job_Runner::do_verifying()'s upload_to_drive branch.
+	 */
+	public static function begin( $job, $payload ) {
 		$backup = Backup_Store::get_by_id( $job->backup_id );
 
 		if ( ! $backup || ! $backup->file_path ) {
@@ -82,7 +87,11 @@ class Drive_Upload_Job {
 		);
 	}
 
-	private static function do_uploading( $job, $payload, $time_budget ) {
+	/**
+	 * Public for the same reason begin() is -- reused directly by a backup
+	 * job's own tacked-on upload phase.
+	 */
+	public static function do_uploading( $job, $payload, $time_budget ) {
 		$handle = fopen( $payload['file_path'], 'rb' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 
 		if ( ! $handle ) {

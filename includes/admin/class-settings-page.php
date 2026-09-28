@@ -169,6 +169,17 @@ class Settings_Page {
 								</label>
 							</td>
 						</tr>
+						<?php if ( Google_Drive::is_connected() ) : ?>
+							<tr>
+								<th><label for="wpvault-schedule-upload-to-drive"><?php esc_html_e( 'Google Drive', 'wpvault' ); ?></label></th>
+								<td>
+									<label>
+										<input type="checkbox" id="wpvault-schedule-upload-to-drive" name="wpvault_upload_to_drive" value="1" <?php checked( ! empty( $schedule['upload_to_drive'] ) ); ?>>
+										<?php esc_html_e( 'Also save each scheduled backup to Google Drive', 'wpvault' ); ?>
+									</label>
+								</td>
+							</tr>
+						<?php endif; ?>
 						<tr>
 							<th><label for="wpvault-schedule-retention"><?php esc_html_e( 'Keep', 'wpvault' ); ?></label></th>
 							<td>
@@ -332,6 +343,12 @@ class Settings_Page {
 				<p class="description">
 					<?php esc_html_e( 'Save a copy of any verified backup to Google Drive on demand, from the Backups screen. Backups are always created locally first -- Drive is just an extra copy you choose to send, never where backups are created.', 'wpvault' ); ?>
 				</p>
+
+				<?php if ( Google_Drive::needs_reconnect() ) : ?>
+					<div class="notice notice-warning inline">
+						<p><?php esc_html_e( 'Your Google Drive connection expired or was revoked. Reconnect it below to keep saving backups there.', 'wpvault' ); ?></p>
+					</div>
+				<?php endif; ?>
 
 				<?php if ( ! Google_Drive::is_connected() ) : ?>
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">

@@ -141,13 +141,15 @@
 	}
 
 	function startBackup() {
-		var type         = document.querySelector( 'input[name="wpvault-type"]:checked' ).value;
-		var excludeCache = document.getElementById( 'wpvault-exclude-cache' ).checked;
+		var type           = document.querySelector( 'input[name="wpvault-type"]:checked' ).value;
+		var excludeCache   = document.getElementById( 'wpvault-exclude-cache' ).checked;
+		var uploadCheckbox = document.getElementById( 'wpvault-upload-to-drive' );
+		var uploadToDrive  = uploadCheckbox ? uploadCheckbox.checked : false;
 
 		document.getElementById( 'wpvault-start-backup' ).disabled = true;
 		backupBusy = true;
 
-		api( '/backups', 'POST', { type: type, exclude_cache: excludeCache } ).then( function ( res ) {
+		api( '/backups', 'POST', { type: type, exclude_cache: excludeCache, upload_to_drive: uploadToDrive } ).then( function ( res ) {
 			if ( ! res.ok ) {
 				backupBusy = false;
 				window.alert( res.data.message || cfg.i18n.backupFailed );

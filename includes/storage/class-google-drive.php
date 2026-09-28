@@ -41,13 +41,14 @@ class Google_Drive {
 
 	public static function defaults() {
 		return array(
-			'client_id'     => '',
-			'client_secret' => '',
-			'access_token'  => '',
-			'refresh_token' => '',
-			'expires_at'    => 0,
-			'email'         => '',
-			'folder_id'     => '',
+			'client_id'       => '',
+			'client_secret'   => '',
+			'access_token'    => '',
+			'refresh_token'   => '',
+			'expires_at'      => 0,
+			'email'           => '',
+			'folder_id'       => '',
+			'needs_reconnect' => false,
 		);
 	}
 
@@ -77,6 +78,17 @@ class Google_Drive {
 		return self::get_settings()['email'];
 	}
 
+	/**
+	 * True once get_valid_access_token() has seen Google reject the stored
+	 * refresh token outright (revoked from the user's Google account,
+	 * expired, or the OAuth app's own access removed) -- distinct from
+	 * never having connected at all, so Settings can say "reconnect"
+	 * instead of just "connect".
+	 */
+	public static function needs_reconnect() {
+		return ! empty( self::get_settings()['needs_reconnect'] );
+	}
+
 	public static function redirect_uri() {
 		return add_query_arg( array( 'action' => self::OAUTH_CALLBACK_ACTION ), admin_url( 'admin-post.php' ) );
 	}
@@ -101,13 +113,14 @@ class Google_Drive {
 		if ( $client_id !== $current['client_id'] || $client_secret !== $current['client_secret'] ) {
 			self::save(
 				array(
-					'client_id'     => $client_id,
-					'client_secret' => $client_secret,
-					'access_token'  => '',
-					'refresh_token' => '',
-					'expires_at'    => 0,
-					'email'         => '',
-					'folder_id'     => '',
+					'client_id'       => $client_id,
+					'client_secret'   => $client_secret,
+					'access_token'    => '',
+					'refresh_token'   => '',
+					'expires_at'      => 0,
+					'email'           => '',
+					'folder_id'       => '',
+					'needs_reconnect' => false,
 				)
 			);
 		}
@@ -193,9 +206,10 @@ class Google_Drive {
 
 		self::save(
 			array(
-				'access_token'  => $tokens['access_token'],
-				'refresh_token' => $tokens['refresh_token'],
-				'expires_at'    => time() + (int) $tokens['expires_in'],
+				'access_token'    => $tokens['access_token'],
+				'refresh_token'   => $tokens['refresh_token'],
+				'expires_at'      => time() + (int) $tokens['expires_in'],
+				'needs_reconnect' => false,
 			)
 		);
 
@@ -237,11 +251,12 @@ class Google_Drive {
 
 		self::save(
 			array(
-				'access_token'  => '',
-				'refresh_token' => '',
-				'expires_at'    => 0,
-				'email'         => '',
-				'folder_id'     => '',
+				'access_token'    => '',
+				'refresh_token'   => '',
+				'expires_at'      => 0,
+				'email'           => '',
+				'folder_id'       => '',
+				'needs_reconnect' => false,
 			)
 		);
 
@@ -257,7 +272,11 @@ class Google_Drive {
 		$settings = self::get_settings();
 
 		if ( '' === $settings['refresh_token'] ) {
-			return new \WP_Error( 'wpvault_gdrive_not_connected', __( 'Google Drive is not connected. Connect it from Settings first.', 'wpvault' ) );
+			$message = ! empty( $settings['needs_reconnect'] )
+				? __( 'Your Google Drive connection expired or was revoked. Reconnect it from Settings.', 'wpvault' )
+				: __( 'Google Drive is not connected. Connect it from Settings first.', 'wpvault' );
+
+			return new \WP_Error( 'wpvault_gdrive_not_connected', $message );
 		}
 
 		if ( '' !== $settings['access_token'] && time() < ( $settings['expires_at'] - self::TOKEN_EXPIRY_MARGIN ) ) {
@@ -274,6 +293,28 @@ class Google_Drive {
 		);
 
 		if ( is_wp_error( $tokens ) ) {
+			$error_data   = $tokens->get_error_data();
+			$google_error = is_array( $error_data ) && isset( $error_data['google_error'] ) ? $error_data['google_error'] : null;
+
+			if ( 'invalid_grant' === $google_error ) {
+				// Google itself rejected the refresh token -- revoked from
+				// the user's Google account, or the OAuth app's access
+				// removed. Retrying later won't help; clear the connection
+				// so every surface (Settings, the Backups dropdown,
+				// scheduled/manual auto-upload) treats it as needing a
+				// fresh Connect, not a transient hiccup.
+				self::save(
+					array(
+						'access_token'    => '',
+						'refresh_token'   => '',
+						'expires_at'      => 0,
+						'needs_reconnect' => true,
+					)
+				);
+
+				return new \WP_Error( 'wpvault_gdrive_not_connected', __( 'Your Google Drive connection expired or was revoked. Reconnect it from Settings.', 'wpvault' ) );
+			}
+
 			return $tokens;
 		}
 
@@ -312,7 +353,15 @@ class Google_Drive {
 					$code
 				);
 
-			return new \WP_Error( 'wpvault_gdrive_auth_failed', $message );
+			// Google's own error code (carried in the WP_Error's data, not
+			// just its message) is what get_valid_access_token() uses to
+			// tell "the refresh token itself was rejected -- reconnect"
+			// apart from a transient failure worth just retrying later.
+			return new \WP_Error(
+				'wpvault_gdrive_auth_failed',
+				$message,
+				array( 'google_error' => is_array( $data ) && ! empty( $data['error'] ) ? $data['error'] : null )
+			);
 		}
 
 		return $data;

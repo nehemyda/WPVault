@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.0
+Stable tag: 0.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,7 +27,7 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 * Import a `.wpvault` package made on a *different* site, then restore it here -- the same restore engine, safety snapshot, and URL replacement handle the rest
 * Scheduled backups: daily or weekly, at a chosen time, with automatic retention that only ever prunes backups the schedule itself created
 * Pre-update backups: automatically backs up right before a plugin, theme, or core update is applied -- including background auto-updates and WP-CLI updates -- without ever blocking or failing the update
-* Google Drive: save a copy of any verified backup to your own Google Drive on demand, from a dropdown next to it on the Backups screen. Connect once with your own Google Cloud OAuth app (Client ID + Secret); WPVault only ever requests access to files it creates itself, never your existing Drive files
+* Google Drive: save a copy of any verified backup to your own Google Drive -- on demand from a dropdown on the Backups screen, automatically after every scheduled backup, or automatically for a one-off "Backup Now". Connect once with your own Google Cloud OAuth app (Client ID + Secret); WPVault only ever requests access to files it creates itself, never your existing Drive files. A Drive failure never fails the backup itself, and an expired or revoked connection is detected and surfaced as a clear "reconnect" prompt
 * WP-CLI: `wp wpvault backup`, `backups`, `verify`, `restore`, `status`, `schedule`, `cleanup` -- the same engine as the admin UI, useful for cron-driven backups and scripted restores
 
 == Where backups are stored ==
@@ -35,6 +35,9 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.9.1 =
+* Google Drive: scheduled backups and "Backup Now" can now also save to Drive automatically (a checkbox next to each), on top of the existing on-demand dropdown -- no additional connecting or re-authenticating required, ever, for any of the three. A Drive upload failure never fails the underlying backup. An expired or revoked Google connection is now detected specifically and shown as a "reconnect" prompt in Settings instead of a generic error.
 
 = 0.9.0 =
 * Google Drive: save a copy of any verified backup to Google Drive on demand from the Backups screen, uploaded in chunks. Connect your own Google Cloud OAuth app once from Settings; backups are always created locally first, Drive is only ever an extra copy you choose to send.
