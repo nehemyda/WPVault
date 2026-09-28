@@ -33,6 +33,9 @@ delete_option( 'wpvault_jobs_db_version' );
 delete_option( 'wpvault_logs_db_version' );
 
 wp_clear_scheduled_hook( 'wpvault_cron_tick' );
+wp_clear_scheduled_hook( 'wpvault_scheduled_backup_tick' );
+
+delete_option( 'wpvault_schedule' );
 
 $administrator = get_role( 'administrator' );
 

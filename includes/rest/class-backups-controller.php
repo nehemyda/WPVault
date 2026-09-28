@@ -353,7 +353,7 @@ class Backups_Controller {
 			return $manifest;
 		}
 
-		$backup   = Backup_Store::create( $manifest['backup_type'] );
+		$backup   = Backup_Store::create( $manifest['backup_type'], Backup_Store::ORIGIN_IMPORT );
 		$filename = sprintf( 'imported-%s-%s.wpvault', gmdate( 'Y-m-d-His' ), (int) $backup->id );
 		$moved    = ( new Local_Storage() )->put( $working_path, $filename );
 
@@ -497,6 +497,7 @@ class Backups_Controller {
 			'uuid'             => $backup->backup_uuid,
 			'type'             => $backup->type,
 			'status'           => $backup->status,
+			'origin'           => $backup->origin,
 			'source_url'       => $backup->source_url,
 			'package_size'     => null === $backup->package_size ? null : (int) $backup->package_size,
 			'file_count'       => null === $backup->file_count ? null : (int) $backup->file_count,

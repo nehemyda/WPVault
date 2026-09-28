@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.6.0
+Stable tag: 0.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -25,7 +25,8 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 * Serialization-aware URL replacement during restore, for when the site's URL has changed since the backup was made
 * wp-config.php and .htaccess are never overwritten by a restore
 * Import a `.wpvault` package made on a *different* site, then restore it here -- the same restore engine, safety snapshot, and URL replacement handle the rest
-* WP-CLI: `wp wpvault backup`, `backups`, `verify`, `restore`, `status`, `cleanup` -- the same engine as the admin UI, useful for cron-driven backups and scripted restores
+* Scheduled backups: daily or weekly, at a chosen time, with automatic retention that only ever prunes backups the schedule itself created
+* WP-CLI: `wp wpvault backup`, `backups`, `verify`, `restore`, `status`, `schedule`, `cleanup` -- the same engine as the admin UI, useful for cron-driven backups and scripted restores
 
 **Not in this version yet:** remote storage.
 
@@ -34,6 +35,9 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.7.0 =
+* Scheduled backups: daily or weekly, at a set time, configured on the Settings screen. Automatic retention keeps only the most recent N *scheduled* backups -- manual, CLI, and imported backups are never affected.
 
 = 0.6.0 =
 * Import now uploads in chunks instead of one request -- no longer limited by this server's upload size setting, only by free disk space.

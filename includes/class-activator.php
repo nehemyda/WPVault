@@ -6,6 +6,7 @@ use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Log_Store;
 use WPVault\Jobs\Cron_Runner;
 use WPVault\Jobs\Job_Store;
+use WPVault\Jobs\Scheduled_Backups;
 use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -23,6 +24,9 @@ class Activator {
 
 		add_filter( 'cron_schedules', array( Cron_Runner::class, 'register_interval' ) ); // phpcs:ignore WordPress.WP.CronInterval.CronSchedulesInterval
 		Cron_Runner::schedule();
+
+		add_filter( 'cron_schedules', array( Scheduled_Backups::class, 'register_interval' ) ); // phpcs:ignore WordPress.WP.CronInterval.CronSchedulesInterval
+		Scheduled_Backups::schedule();
 
 		$administrator = get_role( 'administrator' );
 

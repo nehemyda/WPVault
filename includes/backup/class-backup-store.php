@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Backup_Store {
 
 	const DB_VERSION_OPTION = 'wpvault_backups_db_version';
-	const DB_VERSION        = '1.0';
+	const DB_VERSION        = '1.1';
 
 	const TYPE_FULL     = 'full';
 	const TYPE_DATABASE = 'database';
@@ -25,6 +25,11 @@ class Backup_Store {
 	const STATUS_CREATED  = 'created';
 	const STATUS_VERIFIED = 'verified';
 	const STATUS_FAILED   = 'failed';
+
+	const ORIGIN_MANUAL    = 'manual';
+	const ORIGIN_CLI       = 'cli';
+	const ORIGIN_SCHEDULED = 'scheduled';
+	const ORIGIN_IMPORT    = 'import';
 
 	public static function table_name() {
 		global $wpdb;
@@ -55,6 +60,7 @@ class Backup_Store {
 			status VARCHAR(20) NOT NULL DEFAULT 'created',
 			file_path VARCHAR(255) NULL DEFAULT NULL,
 			package_size BIGINT UNSIGNED NULL DEFAULT NULL,
+			origin VARCHAR(20) NOT NULL DEFAULT 'manual',
 			source_url VARCHAR(255) NULL DEFAULT NULL,
 			manifest_version VARCHAR(20) NULL DEFAULT NULL,
 			checksum VARCHAR(64) NULL DEFAULT NULL,
@@ -71,7 +77,7 @@ class Backup_Store {
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
 	}
 
-	public static function create( $type ) {
+	public static function create( $type, $origin = self::ORIGIN_MANUAL ) {
 		global $wpdb;
 
 		$uuid = wp_generate_uuid4();
@@ -82,10 +88,11 @@ class Backup_Store {
 				'backup_uuid' => $uuid,
 				'type'        => $type,
 				'status'      => self::STATUS_CREATED,
+				'origin'      => $origin,
 				'source_url'  => home_url(),
 				'created_at'  => current_time( 'mysql' ),
 			),
-			array( '%s', '%s', '%s', '%s', '%s' )
+			array( '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 
 		return self::get_by_id( $wpdb->insert_id );

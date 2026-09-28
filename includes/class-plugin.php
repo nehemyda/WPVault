@@ -8,6 +8,7 @@ use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Log_Store;
 use WPVault\Jobs\Cron_Runner;
 use WPVault\Jobs\Job_Store;
+use WPVault\Jobs\Scheduled_Backups;
 use WPVault\Rest\Rest_Controller;
 use WPVault\Storage\Local_Storage;
 
@@ -44,6 +45,11 @@ class Plugin {
 		add_filter( 'cron_schedules', array( Cron_Runner::class, 'register_interval' ) ); // phpcs:ignore WordPress.WP.CronInterval.CronSchedulesInterval
 		Cron_Runner::schedule();
 		add_action( Cron_Runner::CRON_HOOK, array( Cron_Runner::class, 'run_tick' ) );
+
+		add_filter( 'cron_schedules', array( Scheduled_Backups::class, 'register_interval' ) ); // phpcs:ignore WordPress.WP.CronInterval.CronSchedulesInterval
+		Scheduled_Backups::schedule();
+		add_action( Scheduled_Backups::CRON_HOOK, array( Scheduled_Backups::class, 'run_tick' ) );
+		add_action( 'admin_post_wpvault_save_schedule', array( Scheduled_Backups::class, 'handle_settings_save' ) );
 
 		( new Rest_Controller() )->register();
 

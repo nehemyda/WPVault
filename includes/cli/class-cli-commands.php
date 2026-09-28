@@ -63,7 +63,7 @@ class Cli_Commands {
 
 		$this->run_preflight_or_die( Preflight::run() );
 
-		$backup = Backup_Store::create( $type );
+		$backup = Backup_Store::create( $type, Backup_Store::ORIGIN_CLI );
 		$job    = Job_Store::create(
 			Job_Store::TYPE_BACKUP,
 			$backup->id,
@@ -311,6 +311,47 @@ class Cli_Commands {
 
 		if ( $job->error_message ) {
 			\WP_CLI::log( sprintf( 'Error:    %s', $job->error_message ) );
+		}
+	}
+
+	/**
+	 * Shows the current scheduled-backup configuration -- read-only; change
+	 * it from the Settings screen in wp-admin.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp wpvault schedule
+	 *
+	 * @when after_wp_load
+	 */
+	public function schedule( $args, $assoc_args ) {
+		$schedule = \WPVault\Jobs\Scheduled_Backups::get_settings();
+
+		if ( empty( $schedule['enabled'] ) ) {
+			\WP_CLI::log( 'Scheduled backups are turned off.' );
+			return;
+		}
+
+		\WP_CLI::log( sprintf( 'Enabled:   yes (%s, %s)', $schedule['frequency'], $schedule['type'] ) );
+		\WP_CLI::log( sprintf( 'Time:      %s (%s)', $schedule['time'], wp_timezone_string() ) );
+
+		if ( 'weekly' === $schedule['frequency'] ) {
+			$days = array( 1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday' );
+			\WP_CLI::log( sprintf( 'Day:       %s', $days[ (int) $schedule['day_of_week'] ] ?? $schedule['day_of_week'] ) );
+		}
+
+		\WP_CLI::log( sprintf( 'Retention: %s', $schedule['retention'] > 0 ? "last {$schedule['retention']} scheduled backups" : 'unlimited' ) );
+
+		if ( $schedule['next_run'] ) {
+			\WP_CLI::log( sprintf( 'Next run:  %s', wp_date( 'Y-m-d H:i:s', (int) $schedule['next_run'] ) ) );
+		}
+
+		if ( $schedule['last_run_at'] ) {
+			\WP_CLI::log( sprintf( 'Last run:  %s (backup #%d)', wp_date( 'Y-m-d H:i:s', (int) $schedule['last_run_at'] ), (int) $schedule['last_backup_id'] ) );
+		}
+
+		if ( $schedule['last_error'] ) {
+			\WP_CLI::log( sprintf( 'Last error: %s', $schedule['last_error'] ) );
 		}
 	}
 
