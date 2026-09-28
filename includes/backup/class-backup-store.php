@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Backup_Store {
 
 	const DB_VERSION_OPTION = 'wpvault_backups_db_version';
-	const DB_VERSION        = '1.1';
+	const DB_VERSION        = '1.2';
 
 	const TYPE_FULL     = 'full';
 	const TYPE_DATABASE = 'database';
@@ -70,6 +70,8 @@ class Backup_Store {
 			checksum VARCHAR(64) NULL DEFAULT NULL,
 			file_count BIGINT UNSIGNED NULL DEFAULT NULL,
 			table_count INT UNSIGNED NULL DEFAULT NULL,
+			drive_file_id VARCHAR(64) NULL DEFAULT NULL,
+			drive_link VARCHAR(500) NULL DEFAULT NULL,
 			created_at DATETIME NOT NULL,
 			completed_at DATETIME NULL DEFAULT NULL,
 			PRIMARY KEY  (id),

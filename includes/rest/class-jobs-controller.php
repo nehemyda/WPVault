@@ -135,6 +135,11 @@ class Jobs_Controller {
 			);
 		}
 
+		if ( Job_Store::STATUS_COMPLETED === $job->status && Job_Store::TYPE_DRIVE_UPLOAD === $job->type ) {
+			$backup       = Backup_Store::get_by_id( $job->backup_id );
+			$data['drive'] = $backup ? array( 'link' => $backup->drive_link ) : null;
+		}
+
 		if ( Job_Store::STATUS_FAILED === $job->status ) {
 			$data['logs'] = array_map(
 				static function ( $log ) {

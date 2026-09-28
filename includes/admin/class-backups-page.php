@@ -9,6 +9,7 @@
 namespace WPVault\Admin;
 
 use WPVault\Backup\Backup_Store;
+use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -35,10 +36,12 @@ class Backups_Page {
 			'wpvault-backups',
 			'wpvaultBackups',
 			array(
-				'restUrl'  => esc_url_raw( rest_url( 'wpvault/v1' ) ),
-				'nonce'    => wp_create_nonce( 'wp_rest' ),
-				'autoOpen' => $this->auto_open_from_request(),
-				'i18n'     => array(
+				'restUrl'         => esc_url_raw( rest_url( 'wpvault/v1' ) ),
+				'nonce'           => wp_create_nonce( 'wp_rest' ),
+				'autoOpen'        => $this->auto_open_from_request(),
+				'gdriveConnected' => Google_Drive::is_connected(),
+				'settingsUrl'     => admin_url( 'admin.php?page=wpvault-settings' ),
+				'i18n'            => array(
 					'confirmDelete'       => __( 'Delete this backup permanently? This cannot be undone.', 'wpvault' ),
 					'verifying'           => __( 'Verifying…', 'wpvault' ),
 					'chooseFile'          => __( 'Choose a .wpvault file first.', 'wpvault' ),
@@ -48,11 +51,16 @@ class Backups_Page {
 					'importFailed'        => __( 'Import failed.', 'wpvault' ),
 					'restoreFailed'       => __( 'Restore failed.', 'wpvault' ),
 					'restoreNotFound'     => __( 'Backup not found.', 'wpvault' ),
-					'leaveWarning'        => __( 'A backup, import, or restore is in progress. Leaving now may interrupt it.', 'wpvault' ),
+					'driveFailed'         => __( 'Could not save to Google Drive.', 'wpvault' ),
+					'driveSaved'          => __( 'Saved to Google Drive.', 'wpvault' ),
+					'viewOnDrive'         => __( 'View on Google Drive', 'wpvault' ),
+					'gdriveNotConnected'  => __( 'Google Drive is not connected. Go to WPVault → Settings to connect it.', 'wpvault' ),
+					'leaveWarning'        => __( 'A backup, import, restore, or Google Drive upload is in progress. Leaving now may interrupt it.', 'wpvault' ),
 					'closeBackupConfirm'  => __( 'A backup is in progress. Close this window anyway? The backup itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
 					'closeImportConfirm'  => __( 'An import is uploading. Close this window anyway? The upload will be interrupted and will need to be started over.', 'wpvault' ),
 					'closeRestoreConfirm' => __( 'A restore is in progress. Close this window anyway? The restore itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
-					'busyOpenOther'       => __( 'Please wait for the current backup, import, or restore to finish first.', 'wpvault' ),
+					'closeDriveConfirm'   => __( 'A Google Drive upload is in progress. Close this window anyway? The upload itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
+					'busyOpenOther'       => __( 'Please wait for the current backup, import, restore, or Google Drive upload to finish first.', 'wpvault' ),
 				),
 			)
 		);
@@ -282,6 +290,23 @@ class Backups_Page {
 				</div>
 			</div>
 
+			<div id="wpvault-drive-modal" class="wpvault-modal-overlay" hidden>
+				<div class="wpvault-modal" role="dialog" aria-modal="true" aria-labelledby="wpvault-drive-modal-title">
+					<button type="button" class="wpvault-modal-close" data-close-modal="drive" aria-label="<?php esc_attr_e( 'Close', 'wpvault' ); ?>">&times;</button>
+
+					<div id="wpvault-drive-progress-card">
+						<h2 id="wpvault-drive-modal-title"><?php esc_html_e( 'Saving to Google Drive…', 'wpvault' ); ?></h2>
+						<div class="wpvault-progress">
+							<div class="wpvault-progress-bar" id="wpvault-drive-progress-bar" style="width:0%"></div>
+						</div>
+						<p><span id="wpvault-drive-progress-percent">0%</span></p>
+						<p class="description"><?php esc_html_e( 'Please keep this tab open and avoid navigating away until the upload finishes.', 'wpvault' ); ?></p>
+					</div>
+
+					<div id="wpvault-drive-result-card" hidden></div>
+				</div>
+			</div>
+
 			<?php if ( empty( $backups ) ) : ?>
 				<div class="wpvault-card">
 					<p><?php esc_html_e( 'No backups yet. Click "Create Backup" above to protect this WordPress site.', 'wpvault' ); ?></p>
@@ -332,9 +357,20 @@ class Backups_Page {
 								</td>
 								<td>
 									<?php if ( $backup->file_path ) : ?>
-										<a href="<?php echo esc_url( Download_Handler::url( $backup->id ) ); ?>" class="button button-small">
-											<?php esc_html_e( 'Download', 'wpvault' ); ?>
-										</a>
+										<select
+											class="wpvault-download-target"
+											data-id="<?php echo esc_attr( $backup->id ); ?>"
+											data-local-url="<?php echo esc_url( Download_Handler::url( $backup->id ) ); ?>"
+											data-drive-link="<?php echo esc_url( $backup->drive_link ? $backup->drive_link : '' ); ?>"
+										>
+											<option value="local"><?php esc_html_e( 'Download to Local', 'wpvault' ); ?></option>
+											<option value="drive">
+												<?php echo $backup->drive_link ? esc_html__( 'View on Google Drive', 'wpvault' ) : esc_html__( 'Save to Google Drive', 'wpvault' ); ?>
+											</option>
+										</select>
+										<button type="button" class="button button-small wpvault-download-go" data-id="<?php echo esc_attr( $backup->id ); ?>">
+											<?php esc_html_e( 'Go', 'wpvault' ); ?>
+										</button>
 										<button type="button" class="button button-small wpvault-verify" data-id="<?php echo esc_attr( $backup->id ); ?>">
 											<?php esc_html_e( 'Verify', 'wpvault' ); ?>
 										</button>

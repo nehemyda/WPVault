@@ -12,6 +12,7 @@ use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Preflight;
 use WPVault\Jobs\Pre_Update_Backups;
 use WPVault\Jobs\Scheduled_Backups;
+use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -42,6 +43,7 @@ class Settings_Page {
 		$preflight  = Preflight::run();
 		$schedule   = Scheduled_Backups::get_settings();
 		$pre_update = Pre_Update_Backups::get_settings();
+		$gdrive     = Google_Drive::get_settings();
 
 		global $wp_locale;
 		$day_names = array();
@@ -61,6 +63,32 @@ class Settings_Page {
 
 			<?php if ( isset( $_GET['wpvault_pre_update_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Pre-update backup settings saved.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_gdrive_credentials_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive credentials saved.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_gdrive_connected'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive connected.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_gdrive_disconnected'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive disconnected.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_gdrive_error'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-error is-dismissible">
+					<p>
+						<?php
+						printf(
+							/* translators: %s: the error message returned by Google or this site's own OAuth handling */
+							esc_html__( 'Could not connect Google Drive: %s', 'wpvault' ),
+							esc_html( sanitize_text_field( wp_unslash( $_GET['wpvault_gdrive_error'] ) ) ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+						);
+						?>
+					</p>
+				</div>
 			<?php endif; ?>
 
 			<div class="wpvault-card">
@@ -295,6 +323,68 @@ class Settings_Page {
 							esc_html( $pre_update['last_error'] )
 						);
 						?>
+					</p>
+				<?php endif; ?>
+			</div>
+
+			<div class="wpvault-card">
+				<h2><?php esc_html_e( 'Google Drive', 'wpvault' ); ?></h2>
+				<p class="description">
+					<?php esc_html_e( 'Save a copy of any verified backup to Google Drive on demand, from the Backups screen. Backups are always created locally first -- Drive is just an extra copy you choose to send, never where backups are created.', 'wpvault' ); ?>
+				</p>
+
+				<?php if ( ! Google_Drive::is_connected() ) : ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<input type="hidden" name="action" value="wpvault_save_gdrive_credentials">
+						<?php wp_nonce_field( 'wpvault_save_gdrive_credentials' ); ?>
+
+						<table class="form-table">
+							<tr>
+								<th><label for="wpvault-gdrive-client-id"><?php esc_html_e( 'Client ID', 'wpvault' ); ?></label></th>
+								<td><input type="text" id="wpvault-gdrive-client-id" name="wpvault_gdrive_client_id" value="<?php echo esc_attr( $gdrive['client_id'] ); ?>" class="regular-text"></td>
+							</tr>
+							<tr>
+								<th><label for="wpvault-gdrive-client-secret"><?php esc_html_e( 'Client Secret', 'wpvault' ); ?></label></th>
+								<td><input type="password" id="wpvault-gdrive-client-secret" name="wpvault_gdrive_client_secret" value="<?php echo esc_attr( $gdrive['client_secret'] ); ?>" class="regular-text" autocomplete="off"></td>
+							</tr>
+						</table>
+
+						<p class="description">
+							<?php esc_html_e( 'These come from your own Google Cloud project -- WPVault has no backend of its own to provide a shared one, the same as most self-hosted plugins with Drive support. In the Google Cloud Console: create an OAuth Client ID of type "Web application", and add the redirect URI below to it exactly.', 'wpvault' ); ?>
+						</p>
+						<p>
+							<code><?php echo esc_html( Google_Drive::redirect_uri() ); ?></code>
+						</p>
+						<p class="description">
+							<?php esc_html_e( 'WPVault only ever requests the drive.file scope: access to files this plugin itself creates in your Drive, never your existing files.', 'wpvault' ); ?>
+						</p>
+
+						<p>
+							<button type="submit" class="button button-primary"><?php esc_html_e( 'Save Credentials', 'wpvault' ); ?></button>
+						</p>
+					</form>
+
+					<?php if ( Google_Drive::has_credentials() ) : ?>
+						<p>
+							<a href="<?php echo esc_url( Google_Drive::get_authorize_url() ); ?>" class="button button-primary"><?php esc_html_e( 'Connect Google Drive', 'wpvault' ); ?></a>
+						</p>
+					<?php endif; ?>
+				<?php else : ?>
+					<p>
+						<?php
+						printf(
+							/* translators: %s: the connected Google account's email address */
+							esc_html__( 'Connected as: %s', 'wpvault' ),
+							esc_html( Google_Drive::get_connected_email() )
+						);
+						?>
+					</p>
+					<p>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
+							<input type="hidden" name="action" value="wpvault_gdrive_disconnect">
+							<?php wp_nonce_field( 'wpvault_gdrive_disconnect' ); ?>
+							<button type="submit" class="button"><?php esc_html_e( 'Disconnect', 'wpvault' ); ?></button>
+						</form>
 					</p>
 				<?php endif; ?>
 			</div>

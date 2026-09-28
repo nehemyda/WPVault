@@ -24,8 +24,9 @@ class Job_Store {
 	const DB_VERSION_OPTION = 'wpvault_jobs_db_version';
 	const DB_VERSION        = '1.0';
 
-	const TYPE_BACKUP  = 'backup';
-	const TYPE_RESTORE = 'restore';
+	const TYPE_BACKUP       = 'backup';
+	const TYPE_RESTORE      = 'restore';
+	const TYPE_DRIVE_UPLOAD = 'drive_upload';
 
 	// Order matters: this is also the sequence Job_Runner advances through.
 	const STATUS_QUEUED     = 'queued';

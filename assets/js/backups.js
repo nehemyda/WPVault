@@ -17,6 +17,8 @@
 	var restoreBackupId  = null;
 	var restoreBusy      = false; // true from "Start Restore" click until completed/failed
 
+	var driveBusy = false; // true from opening the Drive modal until completed/failed
+
 	function api( path, method, body ) {
 		var headers = { 'X-WP-Nonce': cfg.nonce };
 
@@ -56,9 +58,9 @@
 	// beforeunload never fires for those (the page itself never unloads).
 
 	function anyOtherBusy( name ) {
-		var flags = { create: backupBusy, import: importBusy, restore: restoreBusy };
+		var flags = { create: backupBusy, import: importBusy, restore: restoreBusy, drive: driveBusy };
 		delete flags[ name ];
-		return flags.create || flags.import || flags.restore;
+		return flags.create || flags.import || flags.restore || flags.drive;
 	}
 
 	function openModal( name ) {
@@ -83,13 +85,17 @@
 			if ( 'restore' === name && restoreBusy && ! window.confirm( cfg.i18n.closeRestoreConfirm ) ) {
 				return;
 			}
+
+			if ( 'drive' === name && driveBusy && ! window.confirm( cfg.i18n.closeDriveConfirm ) ) {
+				return;
+			}
 		}
 
 		document.getElementById( 'wpvault-' + name + '-modal' ).hidden = true;
 	}
 
 	window.addEventListener( 'beforeunload', function ( event ) {
-		if ( ! backupBusy && ! importBusy && ! restoreBusy ) {
+		if ( ! backupBusy && ! importBusy && ! restoreBusy && ! driveBusy ) {
 			return;
 		}
 
@@ -453,6 +459,111 @@
 		} );
 	}
 
+	// --- Save to Google Drive ------------------------------------------------
+	//
+	// The backup file already exists locally by the time this can be
+	// clicked (only verified rows offer it) -- this is a copy, not how the
+	// backup was made, so it's driven by the same generic /jobs/{id}/step
+	// polling loop as everything else, just uploading server-side instead
+	// of doing any local work.
+
+	function openDriveModal( backupId ) {
+		if ( anyOtherBusy( 'drive' ) ) {
+			window.alert( cfg.i18n.busyOpenOther );
+			return;
+		}
+
+		driveBusy = true;
+		document.getElementById( 'wpvault-drive-progress-card' ).hidden = false;
+		document.getElementById( 'wpvault-drive-result-card' ).hidden = true;
+		updateDriveProgress( 0 );
+		document.getElementById( 'wpvault-drive-modal' ).hidden = false;
+
+		api( '/backups/' + backupId + '/drive-upload', 'POST' ).then( function ( res ) {
+			if ( ! res.ok ) {
+				finishDriveFailure( res.data.message || cfg.i18n.driveFailed );
+				return;
+			}
+
+			pollDriveUpload( res.data.job_id, backupId );
+		} ).catch( function () {
+			finishDriveFailure( cfg.i18n.driveFailed );
+		} );
+	}
+
+	function pollDriveUpload( jobId, backupId ) {
+		api( '/jobs/' + jobId + '/step', 'POST' ).then( function ( res ) {
+			if ( ! res.ok ) {
+				finishDriveFailure( res.data.message || cfg.i18n.driveFailed );
+				return;
+			}
+
+			var job = res.data;
+
+			updateDriveProgress( job.percent );
+
+			if ( 'completed' === job.status ) {
+				driveBusy = false;
+				finishDriveSuccess( backupId, job.drive && job.drive.link ? job.drive.link : '' );
+				return;
+			}
+
+			if ( 'failed' === job.status || 'cancelled' === job.status ) {
+				finishDriveFailure( job.error_message || cfg.i18n.driveFailed );
+				return;
+			}
+
+			setTimeout( function () {
+				pollDriveUpload( jobId, backupId );
+			}, 800 );
+		} ).catch( function () {
+			finishDriveFailure( cfg.i18n.driveFailed );
+		} );
+	}
+
+	function finishDriveSuccess( backupId, link ) {
+		document.getElementById( 'wpvault-drive-progress-card' ).hidden = true;
+
+		var resultCard = document.getElementById( 'wpvault-drive-result-card' );
+		resultCard.hidden = false;
+		resultCard.innerHTML = '';
+
+		var p = document.createElement( 'p' );
+		p.appendChild( document.createTextNode( cfg.i18n.driveSaved + ' ' ) );
+
+		if ( link ) {
+			var a = document.createElement( 'a' );
+			a.href = link;
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			a.textContent = cfg.i18n.viewOnDrive;
+			p.appendChild( a );
+		}
+
+		resultCard.appendChild( p );
+
+		// So the row's own dropdown immediately offers "View on Google
+		// Drive" instead of "Save to Google Drive" again, without a reload.
+		var select = document.querySelector( '.wpvault-download-target[data-id="' + backupId + '"]' );
+
+		if ( select && link ) {
+			select.dataset.driveLink = link;
+			select.options[ 1 ].textContent = cfg.i18n.viewOnDrive;
+		}
+	}
+
+	function finishDriveFailure( message ) {
+		driveBusy = false;
+		document.getElementById( 'wpvault-drive-progress-card' ).hidden = true;
+		document.getElementById( 'wpvault-drive-result-card' ).hidden = false;
+		document.getElementById( 'wpvault-drive-result-card' ).textContent = message;
+	}
+
+	function updateDriveProgress( percent ) {
+		document.getElementById( 'wpvault-drive-progress-bar' ).style.width = percent + '%';
+		document.getElementById( 'wpvault-drive-progress-percent' ).textContent = percent + '%';
+	}
+
 	// --- Row actions: verify / delete ------------------------------------
 
 	document.addEventListener( 'click', function ( event ) {
@@ -462,6 +573,7 @@
 		var openCreate   = event.target.closest( '#wpvault-open-create' );
 		var openImport   = event.target.closest( '#wpvault-open-import' );
 		var openRestore  = event.target.closest( '.wpvault-open-restore' );
+		var downloadGo   = event.target.closest( '.wpvault-download-go' );
 		var closeModalEl = event.target.closest( '[data-close-modal]' );
 		var overlay      = event.target.classList && event.target.classList.contains( 'wpvault-modal-overlay' ) ? event.target : null;
 
@@ -477,6 +589,21 @@
 			openRestoreModal( openRestore.dataset.id, openRestore.dataset.date, openRestore.dataset.size );
 		}
 
+		if ( downloadGo ) {
+			var row2   = downloadGo.closest( 'tr' );
+			var select = row2.querySelector( '.wpvault-download-target' );
+
+			if ( 'local' === select.value ) {
+				window.location.href = select.dataset.localUrl;
+			} else if ( select.dataset.driveLink ) {
+				window.open( select.dataset.driveLink, '_blank', 'noopener,noreferrer' );
+			} else if ( ! cfg.gdriveConnected ) {
+				window.alert( cfg.i18n.gdriveNotConnected );
+			} else {
+				openDriveModal( downloadGo.dataset.id );
+			}
+		}
+
 		if ( closeModalEl ) {
 			closeModal( closeModalEl.dataset.closeModal, false );
 		}
@@ -489,6 +616,8 @@
 				overlayName = 'import';
 			} else if ( overlay === document.getElementById( 'wpvault-restore-modal' ) ) {
 				overlayName = 'restore';
+			} else if ( overlay === document.getElementById( 'wpvault-drive-modal' ) ) {
+				overlayName = 'drive';
 			}
 			closeModal( overlayName, false );
 		}

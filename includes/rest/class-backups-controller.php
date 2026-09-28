@@ -15,6 +15,7 @@ use WPVault\Admin\Download_Handler;
 use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Preflight;
 use WPVault\Jobs\Job_Store;
+use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -74,6 +75,20 @@ class Backups_Controller {
 			array(
 				'methods'             => \WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'verify_backup' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		// Uploading to Drive is chunked (Jobs_Controller's generic
+		// /jobs/{id}/step drives it) rather than one request, for the same
+		// reason import is: a package can be well over what one request
+		// should attempt in a single blocking upload.
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/backups/(?P<id>\d+)/drive-upload',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'start_drive_upload' ),
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
@@ -186,6 +201,30 @@ class Backups_Controller {
 		}
 
 		return rest_ensure_response( $this->serialize_backup( Backup_Store::get_by_id( $id ) ) );
+	}
+
+	public function start_drive_upload( \WP_REST_Request $request ) {
+		$backup = Backup_Store::get_by_id( (int) $request->get_param( 'id' ) );
+
+		if ( ! $backup ) {
+			return new \WP_Error( 'wpvault_not_found', __( 'Backup not found.', 'wpvault' ), array( 'status' => 404 ) );
+		}
+
+		if ( Backup_Store::STATUS_VERIFIED !== $backup->status ) {
+			return new \WP_Error( 'wpvault_backup_not_verified', __( 'Only a verified backup can be saved to Google Drive.', 'wpvault' ), array( 'status' => 422 ) );
+		}
+
+		if ( ! Google_Drive::is_connected() ) {
+			return new \WP_Error( 'wpvault_gdrive_not_connected', __( 'Google Drive is not connected. Connect it from Settings first.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		if ( Job_Store::find_latest_active() ) {
+			return new \WP_Error( 'wpvault_job_in_progress', __( 'Another backup, import, or restore is already running. Wait for it to finish first.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		$job = Job_Store::create( Job_Store::TYPE_DRIVE_UPLOAD, $backup->id );
+
+		return rest_ensure_response( array( 'job_id' => $job->id ) );
 	}
 
 	/**
@@ -505,6 +544,7 @@ class Backups_Controller {
 			'created_at'       => $backup->created_at,
 			'completed_at'     => $backup->completed_at,
 			'download_url'     => $backup->file_path ? Download_Handler::url( $backup->id ) : null,
+			'drive_link'       => $backup->drive_link,
 		);
 	}
 }
