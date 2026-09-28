@@ -274,6 +274,8 @@ class Cli_Commands {
 			$removed++;
 		}
 
+		$removed += Local_Storage::sweep_stale_import_dirs();
+
 		\WP_CLI::success( sprintf( 'Removed %d orphaned temporary director%s.', $removed, 1 === $removed ? 'y' : 'ies' ) );
 	}
 

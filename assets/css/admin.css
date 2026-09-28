@@ -69,3 +69,58 @@
 .wpvault-status-cell {
 	white-space: nowrap;
 }
+
+.wpvault-modal-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0, 0, 0, 0.5);
+	z-index: 100000;
+	padding: 60px 20px;
+	overflow-y: auto;
+	/* display is set only in the :not([hidden]) rule below -- an author
+	   stylesheet's plain .class{display:flex} rule has the same specificity
+	   as the UA stylesheet's [hidden]{display:none} and loads after it, so
+	   it would otherwise win and show the overlay regardless of the hidden
+	   attribute. Confirmed by hand: without this split, both modals
+	   rendered on top of each other at all times, hidden attribute or not. */
+}
+
+.wpvault-modal-overlay:not([hidden]) {
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+}
+
+.wpvault-modal {
+	background: #fff;
+	border-radius: 4px;
+	padding: 24px 28px;
+	max-width: 560px;
+	width: 100%;
+	position: relative;
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+
+.wpvault-modal h2:first-child {
+	margin-top: 0;
+}
+
+.wpvault-modal-close {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	background: none;
+	border: none;
+	font-size: 22px;
+	line-height: 1;
+	cursor: pointer;
+	color: #50575e;
+	padding: 4px 8px;
+}
+
+.wpvault-modal-close:hover {
+	color: #1d2327;
+}

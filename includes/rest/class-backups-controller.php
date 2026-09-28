@@ -78,12 +78,37 @@ class Backups_Controller {
 			)
 		);
 
+		// Import is chunked (§15/§3.1 update): a single-request upload would
+		// be bounded by this server's own upload_max_filesize/post_max_size,
+		// same as every other host WPVault might run on. Splitting it into
+		// init/chunk/complete means the only real ceiling left is disk
+		// space, checked up front in import_init().
 		register_rest_route(
 			Rest_Controller::NAMESPACE_V1,
-			'/backups/import',
+			'/backups/import/init',
 			array(
 				'methods'             => \WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'import_backup' ),
+				'callback'            => array( $this, 'import_init' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/backups/import/chunk',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'import_chunk' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/backups/import/complete',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'import_complete' ),
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
@@ -165,47 +190,176 @@ class Backups_Controller {
 
 	/**
 	 * §15/§3.1: bring a .wpvault package made on a different site onto this
-	 * one. Deliberately synchronous, not a job -- validating an upload means
-	 * reading a zip's central directory and manifest, not scanning file
-	 * contents, and that's fast regardless of package size.
+	 * one, uploaded in chunks so it isn't bounded by this server's own
+	 * upload_max_filesize/post_max_size the way a single-request upload
+	 * would be. init reserves an upload slot and disk space; chunk appends
+	 * one piece at a time (called repeatedly by the browser, same shape as
+	 * the job-step endpoints); complete runs the exact same
+	 * validate-then-finalize pipeline the old single-shot endpoint used
+	 * once the assembled file is on disk.
 	 */
-	public function import_backup( \WP_REST_Request $request ) {
+	public function import_init( \WP_REST_Request $request ) {
 		$preflight = Preflight::run();
 
 		if ( ! $preflight['ok'] ) {
 			return new \WP_Error( 'wpvault_preflight_failed', __( 'WPVault cannot import a package right now -- see the checks below.', 'wpvault' ), array( 'status' => 422, 'checks' => $preflight['checks'] ) );
 		}
 
-		$files = $request->get_file_params();
+		$total_size = (int) $request->get_param( 'total_size' );
 
-		if ( empty( $files['package'] ) || UPLOAD_ERR_OK !== $files['package']['error'] ) {
-			return new \WP_Error( 'wpvault_upload_failed', __( 'No file was received, or the upload failed (it may be larger than this server allows).', 'wpvault' ), array( 'status' => 400 ) );
+		if ( $total_size <= 0 ) {
+			return new \WP_Error( 'wpvault_invalid_upload', __( 'Missing or invalid file size.', 'wpvault' ), array( 'status' => 400 ) );
+		}
+
+		$space = Preflight::check_disk_space( $total_size );
+
+		if ( is_wp_error( $space ) ) {
+			return $space;
 		}
 
 		Local_Storage::ensure_directories();
-		$working_path = Local_Storage::temp_dir() . 'import-' . wp_generate_password( 12, false ) . '.wpvault';
+		Local_Storage::sweep_stale_import_dirs();
 
-		// move_uploaded_file(), not Local_Storage::put()'s rename() -- its
-		// built-in is_uploaded_file() check is what stands between this
-		// endpoint and a crafted tmp_name naming an arbitrary server file.
-		if ( ! move_uploaded_file( $files['package']['tmp_name'], $working_path ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_move_uploaded_file, WordPress.PHP.NoSilencedErrors.Discouraged
-			return new \WP_Error( 'wpvault_upload_failed', __( 'Could not save the uploaded file.', 'wpvault' ), array( 'status' => 500 ) );
+		$upload_id = wp_generate_password( 20, false, false );
+		$dir       = Local_Storage::new_job_temp_dir( 'import-' . $upload_id );
+
+		file_put_contents( $dir . 'package.wpvault.part', '' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->write_import_meta(
+			$upload_id,
+			array(
+				'total_size'     => $total_size,
+				'received_bytes' => 0,
+				'created_at'     => time(),
+			)
+		);
+
+		return rest_ensure_response(
+			array(
+				'upload_id'  => $upload_id,
+				'chunk_size' => $this->import_chunk_size(),
+			)
+		);
+	}
+
+	public function import_chunk( \WP_REST_Request $request ) {
+		$upload_id = (string) $request->get_param( 'upload_id' );
+		$offset    = (int) $request->get_param( 'offset' );
+
+		$meta = $this->read_import_meta( $upload_id );
+
+		if ( is_wp_error( $meta ) ) {
+			return $meta;
 		}
+
+		if ( $offset !== $meta['received_bytes'] ) {
+			// Most often a retried request after the client never saw the
+			// previous response -- report what the server actually has so
+			// the browser can resume from there instead of failing the
+			// whole upload over one dropped acknowledgement.
+			return new \WP_Error(
+				'wpvault_import_offset_mismatch',
+				__( 'Upload is out of sync with the server.', 'wpvault' ),
+				array(
+					'status'         => 409,
+					'received_bytes' => $meta['received_bytes'],
+				)
+			);
+		}
+
+		$body = $request->get_body();
+
+		if ( '' === $body ) {
+			return new \WP_Error( 'wpvault_import_empty_chunk', __( 'Empty chunk received.', 'wpvault' ), array( 'status' => 400 ) );
+		}
+
+		if ( $meta['received_bytes'] + strlen( $body ) > $meta['total_size'] ) {
+			return new \WP_Error( 'wpvault_import_too_large', __( 'This chunk would exceed the declared upload size.', 'wpvault' ), array( 'status' => 400 ) );
+		}
+
+		$dir       = Local_Storage::new_job_temp_dir( 'import-' . sanitize_file_name( $upload_id ) );
+		$part_path = $dir . 'package.wpvault.part';
+		$part      = fopen( $part_path, 'ab' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+
+		if ( ! $part ) {
+			return new \WP_Error( 'wpvault_import_write_failed', __( 'Could not write the uploaded chunk to disk.', 'wpvault' ), array( 'status' => 500 ) );
+		}
+
+		$written = fwrite( $part, $body ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+		fclose( $part ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+
+		// Preflight's free-space check is only an estimate -- disk_free_space()
+		// often reports the whole filesystem/volume, not a shared host's
+		// actual account quota, so a chunk can still fail here on a host
+		// that looked fine at init. A partial write leaves the file longer
+		// than what's tracked in received_bytes; truncate it back to that
+		// last confirmed offset so file and metadata never disagree, and
+		// this exact chunk can simply be retried once space is freed.
+		if ( false === $written || $written !== strlen( $body ) ) {
+			$fh = fopen( $part_path, 'r+b' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+
+			if ( $fh ) {
+				ftruncate( $fh, $meta['received_bytes'] );
+				fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+			}
+
+			return new \WP_Error(
+				'wpvault_import_disk_full',
+				__( 'Could not write the full chunk to disk -- the server may be out of storage space or over its hosting quota. Free up space and try importing again.', 'wpvault' ),
+				array( 'status' => 507 )
+			);
+		}
+
+		$meta['received_bytes'] += strlen( $body );
+		$this->write_import_meta( $upload_id, $meta );
+
+		return rest_ensure_response(
+			array(
+				'received_bytes' => $meta['received_bytes'],
+				'total_size'     => $meta['total_size'],
+			)
+		);
+	}
+
+	public function import_complete( \WP_REST_Request $request ) {
+		$upload_id = (string) $request->get_param( 'upload_id' );
+		$meta      = $this->read_import_meta( $upload_id );
+
+		if ( is_wp_error( $meta ) ) {
+			return $meta;
+		}
+
+		if ( $meta['received_bytes'] !== $meta['total_size'] ) {
+			return new \WP_Error(
+				'wpvault_import_incomplete',
+				sprintf(
+					/* translators: 1: bytes received so far, 2: total expected bytes */
+					__( 'Upload is incomplete -- received %1$s of %2$s.', 'wpvault' ),
+					size_format( $meta['received_bytes'] ),
+					size_format( $meta['total_size'] )
+				),
+				array( 'status' => 409 )
+			);
+		}
+
+		$token        = 'import-' . sanitize_file_name( $upload_id );
+		$dir          = Local_Storage::new_job_temp_dir( $token );
+		$working_path = $dir . 'package.wpvault.part';
 
 		$manifest = $this->read_and_validate_package( $working_path );
 
 		if ( is_wp_error( $manifest ) ) {
-			wp_delete_file( $working_path );
+			Local_Storage::remove_job_temp_dir( $token );
 			return $manifest;
 		}
 
-		$backup = Backup_Store::create( $manifest['backup_type'] );
+		$backup   = Backup_Store::create( $manifest['backup_type'] );
 		$filename = sprintf( 'imported-%s-%s.wpvault', gmdate( 'Y-m-d-His' ), (int) $backup->id );
 		$moved    = ( new Local_Storage() )->put( $working_path, $filename );
 
 		if ( is_wp_error( $moved ) ) {
 			Backup_Store::delete( $backup->id );
-			wp_delete_file( $working_path );
+			Local_Storage::remove_job_temp_dir( $token );
 			return new \WP_Error( 'wpvault_import_failed', $moved->get_error_message(), array( 'status' => 500 ) );
 		}
 
@@ -231,7 +385,58 @@ class Backups_Controller {
 
 		$backup = Backup_Store::mark_verified( $backup->id );
 
+		Local_Storage::remove_job_temp_dir( $token ); // meta.json only by now -- the .part file was just moved out by put().
+
 		return rest_ensure_response( $this->serialize_backup( $backup ) );
+	}
+
+	/**
+	 * Picks a chunk size that fits comfortably under this server's own
+	 * upload ceiling (whichever of upload_max_filesize/post_max_size binds)
+	 * without needing any configuration -- a generous 8MB on a normal host,
+	 * smaller wherever the host itself is more restrictive.
+	 */
+	private function import_chunk_size() {
+		$max   = wp_max_upload_size();
+		$chunk = (int) floor( $max * 0.8 );
+		$chunk = min( $chunk, 8 * MB_IN_BYTES );
+		$chunk = max( $chunk, 256 * KB_IN_BYTES );
+
+		return min( $chunk, $max );
+	}
+
+	/**
+	 * @return array|\WP_Error The decoded meta.json for an in-progress
+	 *                         import, or a WP_Error if the upload_id is
+	 *                         unknown (never started, already completed, or
+	 *                         swept as stale).
+	 */
+	private function read_import_meta( $upload_id ) {
+		$upload_id = sanitize_file_name( (string) $upload_id );
+
+		if ( '' === $upload_id ) {
+			return new \WP_Error( 'wpvault_import_not_found', __( 'Unknown upload.', 'wpvault' ), array( 'status' => 404 ) );
+		}
+
+		$meta_path = Local_Storage::temp_dir() . 'import-' . $upload_id . '/meta.json';
+
+		if ( ! file_exists( $meta_path ) ) {
+			return new \WP_Error( 'wpvault_import_not_found', __( 'This upload was not found -- it may have expired, or the server may have restarted. Please start the import again.', 'wpvault' ), array( 'status' => 404 ) );
+		}
+
+		$meta = json_decode( file_get_contents( $meta_path ), true ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents
+
+		if ( ! is_array( $meta ) ) {
+			return new \WP_Error( 'wpvault_import_corrupt', __( 'Upload state is corrupt. Please start the import again.', 'wpvault' ), array( 'status' => 500 ) );
+		}
+
+		return $meta;
+	}
+
+	private function write_import_meta( $upload_id, $meta ) {
+		$dir = Local_Storage::temp_dir() . 'import-' . sanitize_file_name( $upload_id ) . '/';
+
+		file_put_contents( $dir . 'meta.json', wp_json_encode( $meta ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 	}
 
 	/**

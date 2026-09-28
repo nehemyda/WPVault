@@ -18,11 +18,9 @@ class Admin_Menu {
 		// instances (even of the same class/method) would give WordPress
 		// two distinct callback identities on what resolves to the same
 		// hookname, and the dashboard would render twice.
-		$dashboard     = new Dashboard_Page();
-		$create_backup = new Create_Backup_Page();
-		$backups       = new Backups_Page();
-		$restore       = new Restore_Page();
-		$settings      = new Settings_Page();
+		$dashboard = new Dashboard_Page();
+		$backups   = new Backups_Page();
+		$settings  = new Settings_Page();
 
 		add_menu_page(
 			__( 'WPVault', 'wpvault' ),
@@ -45,29 +43,11 @@ class Admin_Menu {
 
 		add_submenu_page(
 			WPVAULT_ADMIN_SLUG,
-			__( 'Create Backup', 'wpvault' ),
-			__( 'Create Backup', 'wpvault' ),
-			WPVAULT_CAP_MANAGE,
-			'wpvault-create-backup',
-			array( $create_backup, 'render' )
-		);
-
-		add_submenu_page(
-			WPVAULT_ADMIN_SLUG,
 			__( 'Backups', 'wpvault' ),
 			__( 'Backups', 'wpvault' ),
 			WPVAULT_CAP_MANAGE,
 			'wpvault-backups',
 			array( $backups, 'render' )
-		);
-
-		add_submenu_page(
-			WPVAULT_ADMIN_SLUG,
-			__( 'Restore', 'wpvault' ),
-			__( 'Restore', 'wpvault' ),
-			WPVAULT_CAP_MANAGE,
-			'wpvault-restore',
-			array( $restore, 'render' )
 		);
 
 		add_submenu_page(

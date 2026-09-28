@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,13 +27,25 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 * Import a `.wpvault` package made on a *different* site, then restore it here -- the same restore engine, safety snapshot, and URL replacement handle the rest
 * WP-CLI: `wp wpvault backup`, `backups`, `verify`, `restore`, `status`, `cleanup` -- the same engine as the admin UI, useful for cron-driven backups and scripted restores
 
-**Not in this version yet:** remote storage, and resumable/chunked upload for very large import files (a single import is bounded by this server's own upload size limit, shown on the Backups screen).
+**Not in this version yet:** remote storage.
 
 == Where backups are stored ==
 
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.6.0 =
+* Import now uploads in chunks instead of one request -- no longer limited by this server's upload size setting, only by free disk space.
+
+= 0.5.1 =
+* Dashboard's "Backup Now" and "Restore" now open straight into the matching popup on the Backups screen instead of just landing on the page.
+
+= 0.5.0 =
+* Backups screen: Restore is now a popup opened from a backup's own row, like Create Backup and Import Backup, instead of a separate screen. There is no longer a dedicated Restore admin page.
+
+= 0.4.1 =
+* Backups screen: Create Backup and Import Backup are now popups opened from two buttons, instead of always-open sections. Warns before leaving the page while either is in progress.
 
 = 0.4.0 =
 * WP-CLI commands: backup, backups, verify, restore, status, cleanup -- reuse the same engine as the admin UI.

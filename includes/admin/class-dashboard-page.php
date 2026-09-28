@@ -34,7 +34,6 @@ class Dashboard_Page {
 			array(
 				'restUrl'      => esc_url_raw( rest_url( 'wpvault/v1' ) ),
 				'nonce'        => wp_create_nonce( 'wp_rest' ),
-				'createUrl'    => admin_url( 'admin.php?page=wpvault-create-backup' ),
 				'backupsUrl'   => admin_url( 'admin.php?page=wpvault-backups' ),
 				'activeJobId'  => $active_job ? (int) $active_job->id : 0,
 			)
@@ -46,19 +45,37 @@ class Dashboard_Page {
 			return;
 		}
 
-		$latest  = Backup_Store::get_all( 1 );
-		$latest  = $latest ? $latest[0] : null;
+		$backups = Backup_Store::get_all( 100 );
+		$latest  = $backups ? $backups[0] : null;
 		$used    = Local_Storage::used_space();
 		$free    = Local_Storage::free_space();
+
+		$latest_verified = null;
+
+		foreach ( $backups as $backup ) {
+			if ( Backup_Store::STATUS_VERIFIED === $backup->status ) {
+				$latest_verified = $backup;
+				break;
+			}
+		}
+
+		// Deep-link straight into the matching popup on the Backups page --
+		// Backups_Page reads these and opens it on load, so "Backup Now"
+		// takes you directly into the create form instead of just landing on
+		// a page where you have to click again. Restore has no natural
+		// target of its own from here (unlike Create, it needs a specific
+		// backup), so it targets whichever verified backup is most recent.
+		$backup_href  = admin_url( 'admin.php?page=wpvault-backups&action=create' );
+		$restore_href = admin_url( 'admin.php?page=wpvault-backups' . ( $latest_verified ? '&action=restore&backup=' . $latest_verified->id : '' ) );
 		?>
 		<div class="wrap wpvault-wrap">
 			<h1><?php esc_html_e( 'WPVault', 'wpvault' ); ?></h1>
 
 			<div class="wpvault-actions">
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=wpvault-create-backup' ) ); ?>" class="button button-primary">
+				<a href="<?php echo esc_url( $backup_href ); ?>" class="button button-primary">
 					<?php esc_html_e( 'Backup Now', 'wpvault' ); ?>
 				</a>
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=wpvault-restore' ) ); ?>" class="button">
+				<a href="<?php echo esc_url( $restore_href ); ?>" class="button">
 					<?php esc_html_e( 'Restore', 'wpvault' ); ?>
 				</a>
 			</div>

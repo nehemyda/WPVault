@@ -179,4 +179,40 @@ class Local_Storage implements Storage_Adapter {
 
 		return $total;
 	}
+
+	/**
+	 * Removes import-* temp directories whose upload never finished within
+	 * a reasonable window -- an abandoned browser tab or a page reload
+	 * mid-upload otherwise leaves a partial package sitting in temp/
+	 * forever. Used both by the cron-free "sweep before starting a new
+	 * import" path and by `wp wpvault cleanup`.
+	 *
+	 * @return int Number of directories removed.
+	 */
+	public static function sweep_stale_import_dirs( $max_age_seconds = null ) {
+		if ( null === $max_age_seconds ) {
+			$max_age_seconds = 6 * HOUR_IN_SECONDS;
+		}
+
+		$removed = 0;
+
+		foreach ( (array) glob( self::temp_dir() . 'import-*', GLOB_ONLYDIR ) as $dir ) {
+			$meta_path = $dir . '/meta.json';
+			$created   = 0;
+
+			if ( file_exists( $meta_path ) ) {
+				$meta    = json_decode( file_get_contents( $meta_path ), true ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents
+				$created = is_array( $meta ) && isset( $meta['created_at'] ) ? (int) $meta['created_at'] : 0;
+			}
+
+			if ( $created && ( time() - $created ) < $max_age_seconds ) {
+				continue; // Still within its window -- an upload in progress.
+			}
+
+			self::remove_job_temp_dir( basename( $dir ) );
+			$removed++;
+		}
+
+		return $removed;
+	}
 }
