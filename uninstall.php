@@ -36,6 +36,8 @@ wp_clear_scheduled_hook( 'wpvault_cron_tick' );
 wp_clear_scheduled_hook( 'wpvault_scheduled_backup_tick' );
 
 delete_option( 'wpvault_schedule' );
+delete_option( 'wpvault_pre_update' );
+delete_transient( 'wpvault_pre_update_running' );
 
 $administrator = get_role( 'administrator' );
 

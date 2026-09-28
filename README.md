@@ -12,6 +12,7 @@ Local WordPress backup, restore, and migration. Chunked, resumable, and verified
 - **Restore** — any verified backup back onto the site, with an automatic safety snapshot of the current state taken first by default. `wp-config.php` and `.htaccess` are never overwritten
 - **Migrate** — import a `.wpvault` package made on a *different* site, then restore it here; serialization-aware URL replacement handles the domain change
 - **Scheduled backups** — daily or weekly, at a set time, with automatic retention (keeps the N most recent *scheduled* backups only -- manual, CLI, and imported backups are never pruned)
+- **Pre-update backups** — automatically backs up right before a plugin, theme, or core update applies (including background auto-updates and WP-CLI updates), never blocking or failing the update itself
 - **WP-CLI** — `wp wpvault backup|backups|verify|restore|status|schedule|cleanup`, the same engine as the admin UI
 
 See `readme.txt` for the full feature list and version history.
@@ -38,9 +39,11 @@ See `readme.txt` for the full feature list and version history.
 
    Activation creates three database tables (`wp_wpvault_backups`, `wp_wpvault_jobs`, `wp_wpvault_logs`) and the local storage directory at `wp-content/wpvault/` (`backups/`, `temp/`, `logs/`), each protected from direct web access.
 
-3. Open **WPVault** in the wp-admin sidebar: Dashboard, Backups, and Settings. Backups is the hub for everything backup-related — create, import, restore, and history all live on that one screen, with create/import/restore each opening as a popup rather than a separate page. Scheduled backups are configured on the Settings screen.
+3. Open **WPVault** in the wp-admin sidebar: Dashboard, Backups, and Settings. Backups is the hub for everything backup-related — create, import, restore, and history all live on that one screen, with create/import/restore each opening as a popup rather than a separate page. Scheduled and pre-update backups are both configured on the Settings screen.
 
 Scheduled backups run through the same once-a-minute `wp_cron` safety net as everything else in this plugin: a separate 15-minute tick checks whether the configured time has arrived and, if so, starts a backup the exact same way the "Create Backup" button does. Like any `wp_cron` schedule, it only actually fires on a page load (or a real system cron hitting `wp-cron.php`) -- a site with zero traffic overnight won't back itself up until someone visits.
+
+Pre-update backups work differently: they hook `upgrader_pre_install`, the filter WordPress's own updater runs through right before touching files, and drive the backup job inline for up to 20 seconds before letting the update proceed regardless (the usual `wp_cron` safety net finishes the backup afterward if it needed more time). This covers plugin, theme, and core updates from wp-admin, WP-Cron background auto-updates, and WP-CLI's `wp plugin update` / `wp core update` alike, since they all go through the same code path. A bulk update in wp-admin fires that filter once per item (as separate requests, not a loop in one), so the feature uses a short-lived transient lock to collapse one browser bulk-update action into a single backup rather than one per plugin.
 
 No build step — no Composer or npm dependencies. It's plain PHP (namespaced, PSR-ish autoloader) and vanilla JS/CSS.
 
@@ -71,7 +74,7 @@ includes/
   class-activator.php        class-deactivator.php
   capabilities.php           manage_wpvault capability
   backup/                    Scanner, database exporter, package builder, backup store
-  jobs/                      The chunked/resumable job engine (Job_Store, Job_Runner, Cron_Runner, Scheduled_Backups)
+  jobs/                      The chunked/resumable job engine (Job_Store, Job_Runner, Cron_Runner, Scheduled_Backups, Pre_Update_Backups)
   restore/                   Extractor, database importer, URL replacer, restore phase machine
   storage/                   Local storage adapter (wp-content/wpvault/)
   security/                  Path-traversal guard used during extraction
@@ -93,7 +96,6 @@ assets/
 ## Not in this version yet
 
 - Remote/cloud storage
-- Automatic pre-update backups (backing up right before a plugin/theme/core update)
 
 ## License
 

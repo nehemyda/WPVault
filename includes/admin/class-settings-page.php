@@ -10,6 +10,7 @@ namespace WPVault\Admin;
 
 use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Preflight;
+use WPVault\Jobs\Pre_Update_Backups;
 use WPVault\Jobs\Scheduled_Backups;
 use WPVault\Storage\Local_Storage;
 
@@ -38,8 +39,9 @@ class Settings_Page {
 			return;
 		}
 
-		$preflight = Preflight::run();
-		$schedule  = Scheduled_Backups::get_settings();
+		$preflight  = Preflight::run();
+		$schedule   = Scheduled_Backups::get_settings();
+		$pre_update = Pre_Update_Backups::get_settings();
 
 		global $wp_locale;
 		$day_names = array();
@@ -55,6 +57,10 @@ class Settings_Page {
 
 			<?php if ( isset( $_GET['wpvault_schedule_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Schedule saved.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_pre_update_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Pre-update backup settings saved.', 'wpvault' ); ?></p></div>
 			<?php endif; ?>
 
 			<div class="wpvault-card">
@@ -189,6 +195,104 @@ class Settings_Page {
 							/* translators: %s: the error message from the last failed scheduled backup attempt */
 							esc_html__( 'Last attempt did not start a backup: %s', 'wpvault' ),
 							esc_html( $schedule['last_error'] )
+						);
+						?>
+					</p>
+				<?php endif; ?>
+			</div>
+
+			<div class="wpvault-card">
+				<h2><?php esc_html_e( 'Pre-Update Backups', 'wpvault' ); ?></h2>
+				<p class="description"><?php esc_html_e( 'Automatically back up right before a plugin, theme, or core update is applied -- including background auto-updates. If the backup can\'t finish within a short window, the update proceeds anyway; it is never blocked or delayed for long over this.', 'wpvault' ); ?></p>
+
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="wpvault_save_pre_update">
+					<?php wp_nonce_field( 'wpvault_save_pre_update' ); ?>
+
+					<table class="form-table">
+						<tr>
+							<th><label for="wpvault-pu-enabled"><?php esc_html_e( 'Enabled', 'wpvault' ); ?></label></th>
+							<td>
+								<label>
+									<input type="checkbox" id="wpvault-pu-enabled" name="wpvault_pu_enabled" value="1" <?php checked( $pre_update['enabled'] ); ?>>
+									<?php esc_html_e( 'Back up automatically before updates', 'wpvault' ); ?>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><?php esc_html_e( 'Before which updates', 'wpvault' ); ?></th>
+							<td>
+								<label>
+									<input type="checkbox" name="wpvault_pu_target_plugin" value="1" <?php checked( ! empty( $pre_update['targets']['plugin'] ) ); ?>>
+									<?php esc_html_e( 'Plugin updates', 'wpvault' ); ?>
+								</label><br>
+								<label>
+									<input type="checkbox" name="wpvault_pu_target_theme" value="1" <?php checked( ! empty( $pre_update['targets']['theme'] ) ); ?>>
+									<?php esc_html_e( 'Theme updates', 'wpvault' ); ?>
+								</label><br>
+								<label>
+									<input type="checkbox" name="wpvault_pu_target_core" value="1" <?php checked( ! empty( $pre_update['targets']['core'] ) ); ?>>
+									<?php esc_html_e( 'WordPress core updates', 'wpvault' ); ?>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><?php esc_html_e( 'Backup type', 'wpvault' ); ?></th>
+							<td>
+								<label>
+									<input type="radio" name="wpvault_pu_type" value="<?php echo esc_attr( Backup_Store::TYPE_DATABASE ); ?>" <?php checked( $pre_update['type'], Backup_Store::TYPE_DATABASE ); ?>>
+									<?php esc_html_e( 'Database only (fast -- most likely to finish before the update proceeds)', 'wpvault' ); ?>
+								</label><br>
+								<label>
+									<input type="radio" name="wpvault_pu_type" value="<?php echo esc_attr( Backup_Store::TYPE_FULL ); ?>" <?php checked( $pre_update['type'], Backup_Store::TYPE_FULL ); ?>>
+									<?php esc_html_e( 'Entire website (database + files -- more protection, more likely to still be running when the update proceeds on a large site)', 'wpvault' ); ?>
+								</label><br>
+								<label>
+									<input type="radio" name="wpvault_pu_type" value="<?php echo esc_attr( Backup_Store::TYPE_FILES ); ?>" <?php checked( $pre_update['type'], Backup_Store::TYPE_FILES ); ?>>
+									<?php esc_html_e( 'Files only', 'wpvault' ); ?>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="wpvault-pu-retention"><?php esc_html_e( 'Keep', 'wpvault' ); ?></label></th>
+							<td>
+								<input type="number" id="wpvault-pu-retention" name="wpvault_pu_retention" min="0" max="90" value="<?php echo esc_attr( $pre_update['retention'] ); ?>" class="small-text">
+								<?php esc_html_e( 'most recent pre-update backups', 'wpvault' ); ?>
+								<p class="description"><?php esc_html_e( 'Older pre-update backups beyond this count are deleted automatically. Manually created, scheduled, imported, and WP-CLI backups are never affected. 0 keeps every pre-update backup.', 'wpvault' ); ?></p>
+							</td>
+						</tr>
+					</table>
+
+					<p>
+						<button type="submit" class="button button-primary"><?php esc_html_e( 'Save', 'wpvault' ); ?></button>
+					</p>
+				</form>
+
+				<?php if ( $pre_update['last_run_at'] ) : ?>
+					<hr>
+					<p>
+						<?php
+						printf(
+							/* translators: 1: formatted date/time of the last pre-update backup, 2: what triggered it (a plugin, theme, or core update) */
+							esc_html__( 'Last run: %1$s, before a %2$s update', 'wpvault' ),
+							esc_html( wp_date( $datetime_format, (int) $pre_update['last_run_at'] ) ),
+							esc_html( $pre_update['last_trigger'] )
+						);
+						?>
+						<?php if ( $pre_update['last_backup_id'] ) : ?>
+							&middot;
+							<a href="<?php echo esc_url( admin_url( 'admin.php?page=wpvault-backups' ) ); ?>"><?php esc_html_e( 'View in Backups', 'wpvault' ); ?></a>
+						<?php endif; ?>
+					</p>
+				<?php endif; ?>
+
+				<?php if ( $pre_update['last_error'] ) : ?>
+					<p class="wpvault-check-fail">
+						<?php
+						printf(
+							/* translators: %s: the error message from the last failed pre-update backup attempt */
+							esc_html__( 'Last attempt did not start a backup: %s', 'wpvault' ),
+							esc_html( $pre_update['last_error'] )
 						);
 						?>
 					</p>

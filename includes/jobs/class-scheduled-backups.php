@@ -17,7 +17,6 @@ namespace WPVault\Jobs;
 
 use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Preflight;
-use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -252,7 +251,7 @@ class Scheduled_Backups {
 
 		Job_Runner::step( $job->id, 25 ); // Get it moving now; the minute-tick safety net finishes it.
 
-		self::prune_old_backups( $settings, $backup->id );
+		Backup_Store::prune_by_origin( Backup_Store::ORIGIN_SCHEDULED, $settings['retention'], $backup->id );
 
 		self::update_settings(
 			array(
@@ -264,48 +263,4 @@ class Scheduled_Backups {
 		);
 	}
 
-	/**
-	 * Keeps only the $retention most recent backups that this scheduler
-	 * itself produced -- manually created, CLI, and imported backups are
-	 * never touched, regardless of how old they are. Without this, a daily
-	 * schedule left running indefinitely would eventually fill the disk,
-	 * exactly the kind of failure a "just works" scheduled feature must not
-	 * cause.
-	 */
-	private static function prune_old_backups( array $settings, $keep_backup_id ) {
-		$retention = (int) $settings['retention'];
-
-		if ( $retention <= 0 ) {
-			return;
-		}
-
-		$scheduled = array_values(
-			array_filter(
-				Backup_Store::get_all( 500 ),
-				static function ( $backup ) {
-					return Backup_Store::ORIGIN_SCHEDULED === $backup->origin;
-				}
-			)
-		);
-
-		if ( count( $scheduled ) <= $retention ) {
-			return;
-		}
-
-		foreach ( array_slice( $scheduled, $retention ) as $backup ) {
-			if ( (int) $backup->id === (int) $keep_backup_id ) {
-				continue;
-			}
-
-			if ( Job_Store::find_active_job_for_backup( $backup->id ) ) {
-				continue; // Still in progress somehow -- leave it alone.
-			}
-
-			if ( $backup->file_path ) {
-				( new Local_Storage() )->delete( $backup->file_path );
-			}
-
-			Backup_Store::delete( $backup->id );
-		}
-	}
 }

@@ -9,6 +9,9 @@
 
 namespace WPVault\Backup;
 
+use WPVault\Jobs\Job_Store;
+use WPVault\Storage\Local_Storage;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -26,10 +29,11 @@ class Backup_Store {
 	const STATUS_VERIFIED = 'verified';
 	const STATUS_FAILED   = 'failed';
 
-	const ORIGIN_MANUAL    = 'manual';
-	const ORIGIN_CLI       = 'cli';
-	const ORIGIN_SCHEDULED = 'scheduled';
-	const ORIGIN_IMPORT    = 'import';
+	const ORIGIN_MANUAL     = 'manual';
+	const ORIGIN_CLI        = 'cli';
+	const ORIGIN_SCHEDULED  = 'scheduled';
+	const ORIGIN_IMPORT     = 'import';
+	const ORIGIN_PRE_UPDATE = 'pre_update';
 
 	public static function table_name() {
 		global $wpdb;
@@ -152,5 +156,56 @@ class Backup_Store {
 		global $wpdb;
 
 		$wpdb->delete( self::table_name(), array( 'id' => $id ), array( '%d' ) );
+	}
+
+	/**
+	 * Keeps only the $retention most recent backups with a given origin --
+	 * shared by the scheduled and pre-update backup engines so that an
+	 * automatic backup feature run indefinitely never quietly fills the
+	 * disk. Backups from every *other* origin are never touched, regardless
+	 * of age, so a manual/CLI/imported backup is never pruned just because
+	 * some automatic feature happened to run.
+	 *
+	 * @param string   $origin         One of the ORIGIN_* constants.
+	 * @param int      $retention      Keep this many most-recent matches; 0 = keep them all (no-op).
+	 * @param int|null $keep_backup_id Never prune this id even if it would otherwise fall outside
+	 *                                 the retention window (the backup a caller just created, which
+	 *                                 may still be mid-job).
+	 */
+	public static function prune_by_origin( $origin, $retention, $keep_backup_id = null ) {
+		$retention = (int) $retention;
+
+		if ( $retention <= 0 ) {
+			return;
+		}
+
+		$matching = array_values(
+			array_filter(
+				self::get_all( 500 ),
+				static function ( $backup ) use ( $origin ) {
+					return $origin === $backup->origin;
+				}
+			)
+		);
+
+		if ( count( $matching ) <= $retention ) {
+			return;
+		}
+
+		foreach ( array_slice( $matching, $retention ) as $backup ) {
+			if ( null !== $keep_backup_id && (int) $backup->id === (int) $keep_backup_id ) {
+				continue;
+			}
+
+			if ( Job_Store::find_active_job_for_backup( $backup->id ) ) {
+				continue; // Still in progress somehow -- leave it alone.
+			}
+
+			if ( $backup->file_path ) {
+				( new Local_Storage() )->delete( $backup->file_path );
+			}
+
+			self::delete( $backup->id );
+		}
 	}
 }

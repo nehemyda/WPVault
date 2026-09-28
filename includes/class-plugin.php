@@ -8,6 +8,7 @@ use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Log_Store;
 use WPVault\Jobs\Cron_Runner;
 use WPVault\Jobs\Job_Store;
+use WPVault\Jobs\Pre_Update_Backups;
 use WPVault\Jobs\Scheduled_Backups;
 use WPVault\Rest\Rest_Controller;
 use WPVault\Storage\Local_Storage;
@@ -50,6 +51,13 @@ class Plugin {
 		Scheduled_Backups::schedule();
 		add_action( Scheduled_Backups::CRON_HOOK, array( Scheduled_Backups::class, 'run_tick' ) );
 		add_action( 'admin_post_wpvault_save_schedule', array( Scheduled_Backups::class, 'handle_settings_save' ) );
+
+		// Runs synchronously inline with WP's own upgrader (plugin/theme/core,
+		// whether triggered from wp-admin, a WP-Cron background auto-update,
+		// or WP-CLI) -- see Pre_Update_Backups for why this can't be a cron
+		// tick the way Scheduled_Backups is.
+		add_filter( 'upgrader_pre_install', array( Pre_Update_Backups::class, 'maybe_backup_before_update' ), 10, 2 );
+		add_action( 'admin_post_wpvault_save_pre_update', array( Pre_Update_Backups::class, 'handle_settings_save' ) );
 
 		( new Rest_Controller() )->register();
 
