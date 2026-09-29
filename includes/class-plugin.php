@@ -60,8 +60,6 @@ class Plugin {
 		add_filter( 'upgrader_pre_install', array( Pre_Update_Backups::class, 'maybe_backup_before_update' ), 10, 2 );
 		add_action( 'admin_post_wpvault_save_pre_update', array( Pre_Update_Backups::class, 'handle_settings_save' ) );
 
-		add_action( 'admin_post_wpvault_save_gdrive_credentials', array( Google_Drive::class, 'handle_save_credentials' ) );
-		add_action( 'admin_post_' . Google_Drive::OAUTH_CALLBACK_ACTION, array( Google_Drive::class, 'handle_oauth_callback' ) );
 		add_action( 'admin_post_wpvault_gdrive_disconnect', array( Google_Drive::class, 'handle_disconnect' ) );
 
 		( new Rest_Controller() )->register();

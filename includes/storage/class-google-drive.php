@@ -7,14 +7,21 @@
  * Backups screen's "Save to Google Drive" choice), the same way
  * Download_Handler streams one to the browser instead.
  *
- * There is no shared/shipped OAuth credential: a self-hosted, open-source
- * plugin has no backend of its own to broker one safely, so the site owner
- * creates their own Google Cloud OAuth app (Client ID + Secret) and pastes
- * it into Settings, the same as most self-hosted plugins with Drive
- * support. The requested scope is `drive.file`, not the broader `drive`
- * scope -- it only ever grants access to files this plugin itself creates,
- * never the rest of the user's Drive, which also keeps a self-hosted OAuth
- * app out of Google's stricter "sensitive scope" verification review.
+ * Uses the OAuth 2.0 Device Authorization Grant (RFC 8628) against one
+ * Client ID shared by every WPVault install, instead of the Authorization
+ * Code flow's per-domain redirect URI -- Device Flow needs no redirect URI
+ * at all, so a single Client ID works identically no matter what domain
+ * the site is on, and the site owner never touches Google Cloud Console.
+ * The requested scope is `drive.file`, not the broader `drive` scope -- it
+ * only ever grants access to files this plugin itself creates, never the
+ * rest of the user's Drive.
+ *
+ * Refresh tokens are issued per (Google account, Client ID) pair, not per
+ * site: if the same Google account has already granted this shared client
+ * a refresh token (e.g. connecting a second WPVault site to the same
+ * Drive account), Google may not issue a second one. poll_device_flow()
+ * surfaces that case as an error asking the user to revoke WPVault's
+ * access at myaccount.google.com/permissions and reconnect.
  */
 
 namespace WPVault\Storage;
@@ -25,15 +32,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Google_Drive {
 
-	const OPTION                = 'wpvault_gdrive';
-	const OAUTH_CALLBACK_ACTION = 'wpvault_gdrive_oauth_callback';
-	const SCOPE                 = 'https://www.googleapis.com/auth/drive.file';
-	const AUTH_ENDPOINT         = 'https://accounts.google.com/o/oauth2/v2/auth';
-	const TOKEN_ENDPOINT        = 'https://oauth2.googleapis.com/token';
-	const REVOKE_ENDPOINT       = 'https://oauth2.googleapis.com/revoke';
-	const API_BASE              = 'https://www.googleapis.com/drive/v3';
-	const UPLOAD_BASE           = 'https://www.googleapis.com/upload/drive/v3/files';
-	const FOLDER_NAME           = 'WPVault Backups';
+	const OPTION              = 'wpvault_gdrive';
+	const DEVICE_TRANSIENT    = 'wpvault_gdrive_device';
+	const CLIENT_ID           = '82224326945-d34ca3k71l6af4roa1i3af69f07q5b82.apps.googleusercontent.com';
+	const CLIENT_SECRET       = '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';
+	const SCOPE               = 'https://www.googleapis.com/auth/drive.file';
+	const DEVICE_CODE_ENDPOINT = 'https://oauth2.googleapis.com/device/code';
+	const TOKEN_ENDPOINT      = 'https://oauth2.googleapis.com/token';
+	const REVOKE_ENDPOINT     = 'https://oauth2.googleapis.com/revoke';
+	const API_BASE            = 'https://www.googleapis.com/drive/v3';
+	const UPLOAD_BASE         = 'https://www.googleapis.com/upload/drive/v3/files';
+	const FOLDER_NAME         = 'WPVault Backups';
 
 	// A safety margin before the token's real expiry, so a slow request
 	// started just before expiry never gets a 401 mid-flight.
@@ -41,8 +50,6 @@ class Google_Drive {
 
 	public static function defaults() {
 		return array(
-			'client_id'       => '',
-			'client_secret'   => '',
 			'access_token'    => '',
 			'refresh_token'   => '',
 			'expires_at'      => 0,
@@ -64,12 +71,6 @@ class Google_Drive {
 		return $merged;
 	}
 
-	public static function has_credentials() {
-		$settings = self::get_settings();
-
-		return '' !== $settings['client_id'] && '' !== $settings['client_secret'];
-	}
-
 	public static function is_connected() {
 		return '' !== self::get_settings()['refresh_token'];
 	}
@@ -89,144 +90,166 @@ class Google_Drive {
 		return ! empty( self::get_settings()['needs_reconnect'] );
 	}
 
-	public static function redirect_uri() {
-		return add_query_arg( array( 'action' => self::OAUTH_CALLBACK_ACTION ), admin_url( 'admin-post.php' ) );
+	/**
+	 * Starts a new OAuth Device Flow handshake: asks Google for a user_code
+	 * the site owner enters at a Google-hosted URL on any device, with no
+	 * redirect URI needed -- the one thing that lets every WPVault install
+	 * share this single Client ID despite running on a different domain
+	 * each. The returned device_code is stashed server-side (never sent to
+	 * the browser) for poll_device_flow() to redeem.
+	 *
+	 * @return array|\WP_Error {user_code, verification_url, interval, expires_in}
+	 */
+	public static function start_device_flow() {
+		$response = wp_remote_post(
+			self::DEVICE_CODE_ENDPOINT,
+			array(
+				'timeout' => 30,
+				'body'    => array(
+					'client_id' => self::CLIENT_ID,
+					'scope'     => self::SCOPE,
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		if ( $code < 200 || $code >= 300 || empty( $data['device_code'] ) || empty( $data['user_code'] ) ) {
+			return new \WP_Error( 'wpvault_gdrive_api_error', self::error_message_from_response( $data, $code ) );
+		}
+
+		$expires_in = isset( $data['expires_in'] ) ? (int) $data['expires_in'] : 1800;
+		$interval   = isset( $data['interval'] ) ? (int) $data['interval'] : 5;
+
+		set_transient(
+			self::DEVICE_TRANSIENT,
+			array(
+				'device_code' => $data['device_code'],
+				'interval'    => $interval,
+			),
+			$expires_in
+		);
+
+		return array(
+			'user_code'        => $data['user_code'],
+			'verification_url' => isset( $data['verification_url'] ) ? $data['verification_url'] : 'https://www.google.com/device',
+			'interval'         => $interval,
+			'expires_in'       => $expires_in,
+		);
 	}
 
 	/**
-	 * admin_post handler saving the site owner's own Google Cloud OAuth app
-	 * credentials. Changing them invalidates any existing connection --
-	 * a refresh token only works with the client_id/secret that issued it.
+	 * Polls the token endpoint for the device code start_device_flow()
+	 * stashed. Meant to be called repeatedly (per the interval that call
+	 * returned) until it reports something other than "pending".
+	 *
+	 * @return array {status: pending|connected|expired|denied|error, message?, email?, slow_down?}
 	 */
-	public static function handle_save_credentials() {
-		if ( ! wpvault_can_manage() ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'wpvault' ) );
+	public static function poll_device_flow() {
+		$pending = get_transient( self::DEVICE_TRANSIENT );
+
+		if ( ! $pending ) {
+			return array( 'status' => 'expired' );
 		}
 
-		check_admin_referer( 'wpvault_save_gdrive_credentials' );
+		$response = wp_remote_post(
+			self::TOKEN_ENDPOINT,
+			array(
+				'timeout' => 30,
+				'body'    => array(
+					'client_id'     => self::CLIENT_ID,
+					'client_secret' => self::CLIENT_SECRET,
+					'device_code'   => $pending['device_code'],
+					'grant_type'    => 'urn:ietf:params:oauth:grant-type:device_code',
+				),
+			)
+		);
 
-		$client_id     = isset( $_POST['wpvault_gdrive_client_id'] ) ? sanitize_text_field( wp_unslash( $_POST['wpvault_gdrive_client_id'] ) ) : '';
-		$client_secret = isset( $_POST['wpvault_gdrive_client_secret'] ) ? sanitize_text_field( wp_unslash( $_POST['wpvault_gdrive_client_secret'] ) ) : '';
-
-		$current = self::get_settings();
-
-		if ( $client_id !== $current['client_id'] || $client_secret !== $current['client_secret'] ) {
-			self::save(
-				array(
-					'client_id'       => $client_id,
-					'client_secret'   => $client_secret,
-					'access_token'    => '',
-					'refresh_token'   => '',
-					'expires_at'      => 0,
-					'email'           => '',
-					'folder_id'       => '',
-					'needs_reconnect' => false,
-				)
+		if ( is_wp_error( $response ) ) {
+			return array(
+				'status'  => 'error',
+				'message' => $response->get_error_message(),
 			);
 		}
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_credentials_saved=1' ) );
-		exit;
-	}
+		$code = wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
-	/**
-	 * The URL Settings' "Connect Google Drive" link points to. access_type=
-	 * offline + prompt=consent are both required to reliably get a
-	 * refresh_token back -- Google only issues one on first consent unless
-	 * consent is forced again, and without offline access it wouldn't be
-	 * issued at all.
-	 */
-	public static function get_authorize_url() {
-		$settings = self::get_settings();
+		if ( $code >= 200 && $code < 300 && ! empty( $data['access_token'] ) ) {
+			delete_transient( self::DEVICE_TRANSIENT );
 
-		return add_query_arg(
-			array(
-				'client_id'              => rawurlencode( $settings['client_id'] ),
-				'redirect_uri'           => rawurlencode( self::redirect_uri() ),
-				'response_type'          => 'code',
-				'scope'                  => rawurlencode( self::SCOPE ),
-				'access_type'            => 'offline',
-				'prompt'                 => 'consent',
-				'include_granted_scopes' => 'true',
-				'state'                  => wp_create_nonce( 'wpvault_gdrive_oauth' ),
-			),
-			self::AUTH_ENDPOINT
-		);
-	}
+			// A refresh token is only issued the FIRST time this Google
+			// account grants this shared Client ID access -- keep any
+			// already-stored one if this authorization didn't get a new
+			// one (e.g. reconnecting the same account after a token
+			// refresh failure, rather than a first-time connect).
+			$current_refresh = self::get_settings()['refresh_token'];
+			$refresh_token   = ! empty( $data['refresh_token'] ) ? $data['refresh_token'] : $current_refresh;
 
-	/**
-	 * admin_post handler for Google's redirect back after consent.
-	 */
-	public static function handle_oauth_callback() {
-		if ( ! wpvault_can_manage() ) {
-			wp_die( esc_html__( 'You do not have permission to do this.', 'wpvault' ) );
+			if ( '' === $refresh_token ) {
+				return array(
+					'status'  => 'error',
+					'message' => __( 'Google did not grant a long-lived connection, likely because this Google account already authorized WPVault for another site. Remove WPVault\'s access at https://myaccount.google.com/permissions, then try connecting again.', 'wpvault' ),
+				);
+			}
+
+			self::save(
+				array(
+					'access_token'    => $data['access_token'],
+					'refresh_token'   => $refresh_token,
+					'expires_at'      => time() + (int) $data['expires_in'],
+					'needs_reconnect' => false,
+				)
+			);
+
+			$email = self::fetch_connected_email();
+
+			if ( ! is_wp_error( $email ) ) {
+				self::save( array( 'email' => $email ) );
+			}
+
+			return array(
+				'status' => 'connected',
+				'email'  => is_wp_error( $email ) ? '' : $email,
+			);
 		}
 
-		$state = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$error = is_array( $data ) && ! empty( $data['error'] ) ? $data['error'] : '';
 
-		if ( ! wp_verify_nonce( $state, 'wpvault_gdrive_oauth' ) ) {
-			wp_die( esc_html__( 'This Google Drive connection link has expired. Please try connecting again from Settings.', 'wpvault' ) );
+		switch ( $error ) {
+			case 'authorization_pending':
+				return array( 'status' => 'pending' );
+
+			case 'slow_down':
+				return array(
+					'status'    => 'pending',
+					'slow_down' => true,
+				);
+
+			case 'expired_token':
+				delete_transient( self::DEVICE_TRANSIENT );
+				return array( 'status' => 'expired' );
+
+			case 'access_denied':
+				delete_transient( self::DEVICE_TRANSIENT );
+				return array( 'status' => 'denied' );
+
+			default:
+				delete_transient( self::DEVICE_TRANSIENT );
+				return array(
+					'status'  => 'error',
+					'message' => self::error_message_from_response( $data, $code ),
+				);
 		}
-
-		if ( isset( $_GET['error'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_error=' . rawurlencode( sanitize_text_field( wp_unslash( $_GET['error'] ) ) ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			exit;
-		}
-
-		$code = isset( $_GET['code'] ) ? sanitize_text_field( wp_unslash( $_GET['code'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-
-		if ( '' === $code ) {
-			wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_error=missing_code' ) );
-			exit;
-		}
-
-		$tokens = self::request_token_endpoint(
-			array(
-				'code'          => $code,
-				'client_id'     => self::get_settings()['client_id'],
-				'client_secret' => self::get_settings()['client_secret'],
-				'redirect_uri'  => self::redirect_uri(),
-				'grant_type'    => 'authorization_code',
-			)
-		);
-
-		if ( is_wp_error( $tokens ) ) {
-			wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_error=' . rawurlencode( $tokens->get_error_message() ) ) );
-			exit;
-		}
-
-		if ( empty( $tokens['refresh_token'] ) ) {
-			// Google omits this if the user had already granted consent
-			// before without prompt=consent -- shouldn't happen given we
-			// always pass it, but fail clearly rather than "connect"
-			// without anything that can actually stay connected.
-			wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_error=no_refresh_token' ) );
-			exit;
-		}
-
-		self::save(
-			array(
-				'access_token'    => $tokens['access_token'],
-				'refresh_token'   => $tokens['refresh_token'],
-				'expires_at'      => time() + (int) $tokens['expires_in'],
-				'needs_reconnect' => false,
-			)
-		);
-
-		$email = self::fetch_connected_email();
-
-		if ( ! is_wp_error( $email ) ) {
-			self::save( array( 'email' => $email ) );
-		}
-
-		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_connected=1' ) );
-		exit;
 	}
 
 	/**
 	 * admin_post handler for the Settings screen's "Disconnect" button.
-	 * Credentials (client_id/secret) are kept -- only the connection itself
-	 * is torn down, so reconnecting doesn't require re-entering them.
 	 */
 	public static function handle_disconnect() {
 		if ( ! wpvault_can_manage() ) {
@@ -286,8 +309,8 @@ class Google_Drive {
 		$tokens = self::request_token_endpoint(
 			array(
 				'refresh_token' => $settings['refresh_token'],
-				'client_id'     => $settings['client_id'],
-				'client_secret' => $settings['client_secret'],
+				'client_id'     => self::CLIENT_ID,
+				'client_secret' => self::CLIENT_SECRET,
 				'grant_type'    => 'refresh_token',
 			)
 		);

@@ -33,6 +33,24 @@ class Settings_Page {
 		}
 
 		wp_enqueue_style( 'wpvault-admin', WPVAULT_PLUGIN_URL . 'assets/css/admin.css', array(), WPVAULT_VERSION );
+		wp_enqueue_script( 'wpvault-settings', WPVAULT_PLUGIN_URL . 'assets/js/settings.js', array(), WPVAULT_VERSION, true );
+
+		wp_localize_script(
+			'wpvault-settings',
+			'wpvaultSettings',
+			array(
+				'restUrl' => esc_url_raw( rest_url( 'wpvault/v1' ) ),
+				'nonce'   => wp_create_nonce( 'wp_rest' ),
+				'i18n'    => array(
+					'connecting' => __( 'Starting connection…', 'wpvault' ),
+					'waiting'    => __( 'Waiting for you to approve access…', 'wpvault' ),
+					'connected'  => __( 'Connected! Reloading…', 'wpvault' ),
+					'expired'    => __( 'This code expired. Click Connect Google Drive to get a new one.', 'wpvault' ),
+					'denied'     => __( 'Access was denied. Click Connect Google Drive to try again.', 'wpvault' ),
+					'error'      => __( 'Something went wrong connecting to Google Drive.', 'wpvault' ),
+				),
+			)
+		);
 	}
 
 	public function render() {
@@ -43,7 +61,6 @@ class Settings_Page {
 		$preflight  = Preflight::run();
 		$schedule   = Scheduled_Backups::get_settings();
 		$pre_update = Pre_Update_Backups::get_settings();
-		$gdrive     = Google_Drive::get_settings();
 
 		global $wp_locale;
 		$day_names = array();
@@ -65,30 +82,8 @@ class Settings_Page {
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Pre-update backup settings saved.', 'wpvault' ); ?></p></div>
 			<?php endif; ?>
 
-			<?php if ( isset( $_GET['wpvault_gdrive_credentials_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
-				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive credentials saved.', 'wpvault' ); ?></p></div>
-			<?php endif; ?>
-
-			<?php if ( isset( $_GET['wpvault_gdrive_connected'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
-				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive connected.', 'wpvault' ); ?></p></div>
-			<?php endif; ?>
-
 			<?php if ( isset( $_GET['wpvault_gdrive_disconnected'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive disconnected.', 'wpvault' ); ?></p></div>
-			<?php endif; ?>
-
-			<?php if ( isset( $_GET['wpvault_gdrive_error'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
-				<div class="notice notice-error is-dismissible">
-					<p>
-						<?php
-						printf(
-							/* translators: %s: the error message returned by Google or this site's own OAuth handling */
-							esc_html__( 'Could not connect Google Drive: %s', 'wpvault' ),
-							esc_html( sanitize_text_field( wp_unslash( $_GET['wpvault_gdrive_error'] ) ) ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-						);
-						?>
-					</p>
-				</div>
 			<?php endif; ?>
 
 			<div class="wpvault-card">
@@ -351,41 +346,20 @@ class Settings_Page {
 				<?php endif; ?>
 
 				<?php if ( ! Google_Drive::is_connected() ) : ?>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-						<input type="hidden" name="action" value="wpvault_save_gdrive_credentials">
-						<?php wp_nonce_field( 'wpvault_save_gdrive_credentials' ); ?>
+					<p>
+						<button type="button" id="wpvault-gdrive-connect-btn" class="button button-primary"><?php esc_html_e( 'Connect Google Drive', 'wpvault' ); ?></button>
+					</p>
 
-						<table class="form-table">
-							<tr>
-								<th><label for="wpvault-gdrive-client-id"><?php esc_html_e( 'Client ID', 'wpvault' ); ?></label></th>
-								<td><input type="text" id="wpvault-gdrive-client-id" name="wpvault_gdrive_client_id" value="<?php echo esc_attr( $gdrive['client_id'] ); ?>" class="regular-text"></td>
-							</tr>
-							<tr>
-								<th><label for="wpvault-gdrive-client-secret"><?php esc_html_e( 'Client Secret', 'wpvault' ); ?></label></th>
-								<td><input type="password" id="wpvault-gdrive-client-secret" name="wpvault_gdrive_client_secret" value="<?php echo esc_attr( $gdrive['client_secret'] ); ?>" class="regular-text" autocomplete="off"></td>
-							</tr>
-						</table>
+					<div id="wpvault-gdrive-device" style="display:none">
+						<p><?php esc_html_e( 'Go to the link below on any device and enter this code to finish connecting:', 'wpvault' ); ?></p>
+						<p><code id="wpvault-gdrive-user-code" style="font-size:1.4em"></code></p>
+						<p><a id="wpvault-gdrive-verification-url" href="#" target="_blank" rel="noopener noreferrer"></a></p>
+					</div>
+					<p id="wpvault-gdrive-device-status" class="description"></p>
 
-						<p class="description">
-							<?php esc_html_e( 'These come from your own Google Cloud project -- WPVault has no backend of its own to provide a shared one, the same as most self-hosted plugins with Drive support. In the Google Cloud Console: create an OAuth Client ID of type "Web application", and add the redirect URI below to it exactly.', 'wpvault' ); ?>
-						</p>
-						<p>
-							<code><?php echo esc_html( Google_Drive::redirect_uri() ); ?></code>
-						</p>
-						<p class="description">
-							<?php esc_html_e( 'WPVault only ever requests the drive.file scope: access to files this plugin itself creates in your Drive, never your existing files.', 'wpvault' ); ?>
-						</p>
-
-						<p>
-							<button type="submit" class="button button-primary"><?php esc_html_e( 'Save Credentials', 'wpvault' ); ?></button>
-						</p>
-					</form>
-
-					<?php if ( Google_Drive::has_credentials() ) : ?>
-						<p>
-							<a href="<?php echo esc_url( Google_Drive::get_authorize_url() ); ?>" class="button button-primary"><?php esc_html_e( 'Connect Google Drive', 'wpvault' ); ?></a>
-						</p>
-					<?php endif; ?>
+					<p class="description">
+						<?php esc_html_e( 'WPVault only ever requests the drive.file scope: access to files this plugin itself creates in your Drive, never your existing files.', 'wpvault' ); ?>
+					</p>
 				<?php else : ?>
 					<p>
 						<?php
