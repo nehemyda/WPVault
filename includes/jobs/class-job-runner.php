@@ -172,6 +172,14 @@ class Job_Runner {
 			return Onedrive_Upload_Job::run_phase( $job, $payload, $temp_dir, $time_budget );
 		}
 
+		if ( Job_Store::TYPE_DRIVE_IMPORT === $job->type ) {
+			return Drive_Import_Job::run_phase( $job, $payload, $temp_dir, $time_budget );
+		}
+
+		if ( Job_Store::TYPE_ONEDRIVE_IMPORT === $job->type ) {
+			return Onedrive_Import_Job::run_phase( $job, $payload, $temp_dir, $time_budget );
+		}
+
 		switch ( $job->status ) {
 			case Job_Store::STATUS_QUEUED:
 				return self::begin_scanning( $job, $payload, $temp_dir );

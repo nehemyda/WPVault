@@ -35,6 +35,16 @@ class Onedrive_Controller {
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/onedrive/import-list',
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'import_list' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
 	}
 
 	public function check_permission() {
@@ -53,5 +63,22 @@ class Onedrive_Controller {
 
 	public function poll() {
 		return rest_ensure_response( One_Drive::poll_device_flow() );
+	}
+
+	/**
+	 * Backs the Import screen's "Import from OneDrive" file picker.
+	 */
+	public function import_list() {
+		if ( ! One_Drive::is_connected() ) {
+			return new \WP_Error( 'wpvault_onedrive_not_connected', __( 'OneDrive is not connected.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		$files = One_Drive::list_backup_files();
+
+		if ( is_wp_error( $files ) ) {
+			return new \WP_Error( $files->get_error_code(), $files->get_error_message(), array( 'status' => 502 ) );
+		}
+
+		return rest_ensure_response( array( 'files' => $files ) );
 	}
 }

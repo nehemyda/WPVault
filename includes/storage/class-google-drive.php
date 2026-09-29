@@ -626,4 +626,109 @@ class Google_Drive {
 
 		return new \WP_Error( 'wpvault_gdrive_api_error', self::error_message_from_response( $data, $code ) );
 	}
+
+	/**
+	 * Lists .wpvault packages sitting in this app's own Drive folder, for
+	 * the Import screen's "Import from Google Drive" picker -- the
+	 * drive.file scope means files.list only ever sees items this app
+	 * itself created, so this can only ever surface WPVault's own uploads,
+	 * never arbitrary Drive content.
+	 *
+	 * @return array|\WP_Error List of {id, name, size, modified_time}.
+	 */
+	public static function list_backup_files() {
+		$folder_id = self::ensure_backups_folder();
+
+		if ( is_wp_error( $folder_id ) ) {
+			return $folder_id;
+		}
+
+		$query  = sprintf( "'%s' in parents and trashed=false and name contains '.wpvault'", $folder_id );
+		$result = self::api_get(
+			self::API_BASE . '/files?' . http_build_query(
+				array(
+					'q'        => $query,
+					'fields'   => 'files(id,name,size,modifiedTime)',
+					'orderBy'  => 'modifiedTime desc',
+					'pageSize' => 100,
+				)
+			)
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$files = isset( $result['files'] ) && is_array( $result['files'] ) ? $result['files'] : array();
+
+		return array_map(
+			static function ( $file ) {
+				return array(
+					'id'            => $file['id'],
+					'name'          => $file['name'],
+					'size'          => isset( $file['size'] ) ? (int) $file['size'] : 0,
+					'modified_time' => isset( $file['modifiedTime'] ) ? $file['modifiedTime'] : '',
+				);
+			},
+			$files
+		);
+	}
+
+	/**
+	 * @return array|\WP_Error {size, name} for a file this app has access to.
+	 */
+	public static function get_file_info( $file_id ) {
+		$result = self::api_get( self::API_BASE . '/files/' . rawurlencode( $file_id ) . '?fields=size,name' );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return array(
+			'size' => isset( $result['size'] ) ? (int) $result['size'] : 0,
+			'name' => isset( $result['name'] ) ? $result['name'] : '',
+		);
+	}
+
+	/**
+	 * Downloads one byte range of an existing file's raw contents -- Drive's
+	 * media download endpoint supports HTTP Range requests, so a large
+	 * package is pulled the same chunk-at-a-time way everything else in this
+	 * plugin handles large files, instead of one unbounded request.
+	 *
+	 * @return string|\WP_Error Raw bytes for this range.
+	 */
+	public static function download_chunk( $file_id, $offset, $length ) {
+		$token = self::get_valid_access_token();
+
+		if ( is_wp_error( $token ) ) {
+			return $token;
+		}
+
+		$last_byte = $offset + $length - 1;
+
+		$response = wp_remote_get(
+			self::API_BASE . '/files/' . rawurlencode( $file_id ) . '?alt=media',
+			array(
+				'timeout' => 120,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $token,
+					'Range'         => "bytes={$offset}-{$last_byte}",
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+
+		if ( 206 !== $code && 200 !== $code ) {
+			$data = json_decode( wp_remote_retrieve_body( $response ), true );
+			return new \WP_Error( 'wpvault_gdrive_api_error', self::error_message_from_response( $data, $code ) );
+		}
+
+		return wp_remote_retrieve_body( $response );
+	}
 }

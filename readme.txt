@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.3
+Stable tag: 0.9.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,10 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.9.5 =
+* Restore: once a restore starts, closing the popup or clicking anywhere else in wp-admin is now blocked -- only the "Cancel Restore" button in the progress view can stop it, since a restore (unlike backup or import) actually overwrites live files and database tables while running. Cancelling now also stops the safety-snapshot backup taken beforehand, instead of leaving it running in the background with no visible link back to the restore you cancelled.
+* Dashboard: removed the "Local Storage" card -- the same disk-usage figure already appears on the Settings screen.
 
 = 0.9.3 =
 * OneDrive: save a copy of any verified backup to your own OneDrive, mirroring the Google Drive feature -- on-demand dropdown, scheduled backups, and "Backup Now" checkboxes, one-click "Connect OneDrive" device-code flow, and a "reconnect" prompt if the connection is ever revoked. Drive and OneDrive can be used together on the same backup.

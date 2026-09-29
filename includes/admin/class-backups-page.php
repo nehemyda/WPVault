@@ -72,6 +72,11 @@ class Backups_Page {
 					'closeDriveConfirm'      => __( 'A Google Drive upload is in progress. Close this window anyway? The upload itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
 					'closeOnedriveConfirm'   => __( 'A OneDrive upload is in progress. Close this window anyway? The upload itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
 					'busyOpenOther'          => __( 'Please wait for the current backup, import, restore, or cloud upload to finish first.', 'wpvault' ),
+					'cloudImportListFailed'  => __( 'Could not list backups from this cloud account.', 'wpvault' ),
+					'cloudImportEmpty'       => __( 'No .wpvault backups found there.', 'wpvault' ),
+					'cloudImportTitleDrive'  => __( 'Import from Google Drive', 'wpvault' ),
+					'cloudImportTitleOnedrive' => __( 'Import from OneDrive', 'wpvault' ),
+					'cloudImportButton'      => __( 'Import', 'wpvault' ),
 				),
 			)
 		);
@@ -241,8 +246,34 @@ class Backups_Page {
 								<?php esc_html_e( 'Import', 'wpvault' ); ?>
 							</button>
 						</p>
+						<?php if ( Google_Drive::is_connected() || One_Drive::is_connected() ) : ?>
+							<p class="description"><?php esc_html_e( 'Or bring in a package already saved to a connected cloud account:', 'wpvault' ); ?></p>
+							<p>
+								<?php if ( Google_Drive::is_connected() ) : ?>
+									<button type="button" class="button" id="wpvault-import-from-drive" data-provider="drive">
+										<?php esc_html_e( 'Import from Google Drive', 'wpvault' ); ?>
+									</button>
+								<?php endif; ?>
+								<?php if ( One_Drive::is_connected() ) : ?>
+									<button type="button" class="button" id="wpvault-import-from-onedrive" data-provider="onedrive">
+										<?php esc_html_e( 'Import from OneDrive', 'wpvault' ); ?>
+									</button>
+								<?php endif; ?>
+							</p>
+						<?php endif; ?>
 						<p class="description"><?php esc_html_e( 'Please keep this tab open and avoid navigating away until the import finishes.', 'wpvault' ); ?></p>
 						<div id="wpvault-import-result"></div>
+					</div>
+
+					<div id="wpvault-cloud-import-picker" hidden>
+						<h2 id="wpvault-cloud-import-picker-title"></h2>
+						<div id="wpvault-cloud-import-list"></div>
+						<p id="wpvault-cloud-import-error" class="wpvault-check-fail" hidden></p>
+						<p>
+							<button type="button" class="button" id="wpvault-cloud-import-back">
+								<?php esc_html_e( '← Back', 'wpvault' ); ?>
+							</button>
+						</p>
 					</div>
 
 					<div id="wpvault-import-progress-card" hidden>

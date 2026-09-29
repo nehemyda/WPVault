@@ -5,16 +5,25 @@
  * -- bring a package made on a different site onto this one). Starting or
  * stepping a job is the only slow part of creating one, and starting only
  * creates rows -- the actual work happens in Jobs_Controller's step
- * endpoint, called repeatedly by the browser. Import has no job at all: see
- * import_backup()'s docblock for why.
+ * endpoint, called repeatedly by the browser.
+ *
+ * A browser-uploaded import has no job at all: see import_init()'s docblock
+ * for why. Importing from Google Drive/OneDrive is the opposite case --
+ * downloading a package the site itself already has cloud access to is a
+ * server-to-server transfer with no browser upload involved, so it goes
+ * through the same chunked/resumable job engine as everything else that can
+ * take a while (Drive_Import_Job / Onedrive_Import_Job).
  */
 
 namespace WPVault\Rest;
 
 use WPVault\Admin\Download_Handler;
 use WPVault\Backup\Backup_Store;
+use WPVault\Backup\Import_Finalizer;
 use WPVault\Diagnostics\Preflight;
+use WPVault\Jobs\Drive_Import_Job;
 use WPVault\Jobs\Job_Store;
+use WPVault\Jobs\Onedrive_Import_Job;
 use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
 use WPVault\Storage\One_Drive;
@@ -143,6 +152,26 @@ class Backups_Controller {
 			array(
 				'methods'             => \WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'import_complete' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/backups/import-from-drive',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'import_from_drive' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/backups/import-from-onedrive',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'import_from_onedrive' ),
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
@@ -432,48 +461,70 @@ class Backups_Controller {
 		$dir          = Local_Storage::new_job_temp_dir( $token );
 		$working_path = $dir . 'package.wpvault.part';
 
-		$manifest = $this->read_and_validate_package( $working_path );
+		$backup = Import_Finalizer::finalize( $working_path );
 
-		if ( is_wp_error( $manifest ) ) {
+		if ( is_wp_error( $backup ) ) {
 			Local_Storage::remove_job_temp_dir( $token );
-			return $manifest;
+			return $backup;
 		}
-
-		$backup   = Backup_Store::create( $manifest['backup_type'], Backup_Store::ORIGIN_IMPORT );
-		$filename = sprintf( 'imported-%s-%s.wpvault', gmdate( 'Y-m-d-His' ), (int) $backup->id );
-		$moved    = ( new Local_Storage() )->put( $working_path, $filename );
-
-		if ( is_wp_error( $moved ) ) {
-			Backup_Store::delete( $backup->id );
-			Local_Storage::remove_job_temp_dir( $token );
-			return new \WP_Error( 'wpvault_import_failed', $moved->get_error_message(), array( 'status' => 500 ) );
-		}
-
-		$final_path   = Local_Storage::backups_dir() . $filename;
-		$checksum     = hash_file( 'sha256', $final_path );
-		$package_size = filesize( $final_path );
-
-		Backup_Store::mark_finalized(
-			$backup->id,
-			$filename,
-			$package_size,
-			$checksum,
-			isset( $manifest['format_version'] ) ? $manifest['format_version'] : null,
-			isset( $manifest['file_count'] ) ? (int) $manifest['file_count'] : null,
-			isset( $manifest['table_count'] ) ? (int) $manifest['table_count'] : null
-		);
-
-		// Backup_Store::create() stamps this site's own home_url() as
-		// source_url, correct for a backup we produced -- an imported
-		// package's source is wherever it actually came from.
-		$origin = isset( $manifest['home_url'] ) ? $manifest['home_url'] : ( isset( $manifest['site_url'] ) ? $manifest['site_url'] : '' );
-		Backup_Store::update( $backup->id, array( 'source_url' => $origin ) );
-
-		$backup = Backup_Store::mark_verified( $backup->id );
 
 		Local_Storage::remove_job_temp_dir( $token ); // meta.json only by now -- the .part file was just moved out by put().
 
 		return rest_ensure_response( $this->serialize_backup( $backup ) );
+	}
+
+	/**
+	 * Starts a job that downloads an existing .wpvault package from this
+	 * site's own connected Google Drive and imports it -- only ever a file
+	 * WPVault itself listed via Google_Drive::list_backup_files(), so no
+	 * arbitrary Drive content can be pulled in this way.
+	 */
+	public function import_from_drive( \WP_REST_Request $request ) {
+		if ( ! Google_Drive::is_connected() ) {
+			return new \WP_Error( 'wpvault_gdrive_not_connected', __( 'Google Drive is not connected.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		$preflight = Preflight::run();
+
+		if ( ! $preflight['ok'] ) {
+			return new \WP_Error( 'wpvault_preflight_failed', __( 'WPVault cannot import a package right now -- see the checks below.', 'wpvault' ), array( 'status' => 422, 'checks' => $preflight['checks'] ) );
+		}
+
+		$file_id = sanitize_text_field( (string) $request->get_param( 'file_id' ) );
+
+		if ( '' === $file_id ) {
+			return new \WP_Error( 'wpvault_invalid_request', __( 'Missing file id.', 'wpvault' ), array( 'status' => 400 ) );
+		}
+
+		$job = Job_Store::create( Job_Store::TYPE_DRIVE_IMPORT, null, array( 'drive_file_id' => $file_id ) );
+
+		return rest_ensure_response( array( 'job_id' => $job->id ) );
+	}
+
+	/**
+	 * Same as import_from_drive(), pulling from this site's own connected
+	 * OneDrive app folder instead.
+	 */
+	public function import_from_onedrive( \WP_REST_Request $request ) {
+		if ( ! One_Drive::is_connected() ) {
+			return new \WP_Error( 'wpvault_onedrive_not_connected', __( 'OneDrive is not connected.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		$preflight = Preflight::run();
+
+		if ( ! $preflight['ok'] ) {
+			return new \WP_Error( 'wpvault_preflight_failed', __( 'WPVault cannot import a package right now -- see the checks below.', 'wpvault' ), array( 'status' => 422, 'checks' => $preflight['checks'] ) );
+		}
+
+		$file_id = sanitize_text_field( (string) $request->get_param( 'file_id' ) );
+
+		if ( '' === $file_id ) {
+			return new \WP_Error( 'wpvault_invalid_request', __( 'Missing file id.', 'wpvault' ), array( 'status' => 400 ) );
+		}
+
+		$job = Job_Store::create( Job_Store::TYPE_ONEDRIVE_IMPORT, null, array( 'onedrive_file_id' => $file_id ) );
+
+		return rest_ensure_response( array( 'job_id' => $job->id ) );
 	}
 
 	/**
@@ -523,38 +574,6 @@ class Backups_Controller {
 		$dir = Local_Storage::temp_dir() . 'import-' . sanitize_file_name( $upload_id ) . '/';
 
 		file_put_contents( $dir . 'meta.json', wp_json_encode( $meta ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-	}
-
-	/**
-	 * @return array|\WP_Error The manifest array, or a WP_Error describing
-	 *                         why the package was rejected.
-	 */
-	private function read_and_validate_package( $path ) {
-		try {
-			$reader   = new \WPVault\Restore\Package_Reader( $path );
-			$manifest = $reader->manifest();
-			$reader->close();
-		} catch ( \Throwable $e ) {
-			return new \WP_Error( 'wpvault_invalid_package', __( 'This does not look like a valid WPVault package (it may not be a zip file at all).', 'wpvault' ), array( 'status' => 422 ) );
-		}
-
-		if ( 'wpvault' !== ( $manifest['format'] ?? null ) ) {
-			return new \WP_Error( 'wpvault_invalid_package', __( 'This is not a WPVault package.', 'wpvault' ), array( 'status' => 422 ) );
-		}
-
-		$type = isset( $manifest['backup_type'] ) ? $manifest['backup_type'] : null;
-
-		if ( ! in_array( $type, array( Backup_Store::TYPE_FULL, Backup_Store::TYPE_DATABASE, Backup_Store::TYPE_FILES ), true ) ) {
-			return new \WP_Error( 'wpvault_invalid_package', __( 'The package manifest has an unrecognized backup type.', 'wpvault' ), array( 'status' => 422 ) );
-		}
-
-		$structure = \WPVault\Backup\Package_Builder::verify_structure( $path, $type );
-
-		if ( is_wp_error( $structure ) ) {
-			return new \WP_Error( 'wpvault_invalid_package', $structure->get_error_message(), array( 'status' => 422 ) );
-		}
-
-		return $manifest;
 	}
 
 	public function delete_backup( \WP_REST_Request $request ) {

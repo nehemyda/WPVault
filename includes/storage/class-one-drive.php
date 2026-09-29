@@ -498,4 +498,145 @@ class One_Drive {
 
 		return new \WP_Error( 'wpvault_onedrive_api_error', self::error_message_from_response( $data, $code ) );
 	}
+
+	/**
+	 * Lists .wpvault packages sitting in this app's own special OneDrive
+	 * folder, for the Import screen's "Import from OneDrive" picker -- the
+	 * Files.ReadWrite.AppFolder scope means this can only ever see items
+	 * inside that one app-specific folder, never the rest of the user's
+	 * OneDrive.
+	 *
+	 * @return array|\WP_Error List of {id, name, size, modified_time}.
+	 */
+	public static function list_backup_files() {
+		$result = self::api_get( self::GRAPH_BASE . self::APP_FOLDER . '/children?$select=id,name,size,lastModifiedDateTime&$top=200' );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$files = isset( $result['value'] ) && is_array( $result['value'] ) ? $result['value'] : array();
+
+		$files = array_values(
+			array_filter(
+				$files,
+				static function ( $file ) {
+					return isset( $file['name'] ) && '.wpvault' === substr( $file['name'], -8 );
+				}
+			)
+		);
+
+		return array_map(
+			static function ( $file ) {
+				return array(
+					'id'            => $file['id'],
+					'name'          => $file['name'],
+					'size'          => isset( $file['size'] ) ? (int) $file['size'] : 0,
+					'modified_time' => isset( $file['lastModifiedDateTime'] ) ? $file['lastModifiedDateTime'] : '',
+				);
+			},
+			$files
+		);
+	}
+
+	/**
+	 * @return array|\WP_Error {size, name} for a file in the app folder.
+	 */
+	public static function get_file_info( $file_id ) {
+		$result = self::api_get( self::GRAPH_BASE . '/me/drive/items/' . rawurlencode( $file_id ) . '?$select=size,name' );
+
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		return array(
+			'size' => isset( $result['size'] ) ? (int) $result['size'] : 0,
+			'name' => isset( $result['name'] ) ? $result['name'] : '',
+		);
+	}
+
+	/**
+	 * Resolves a pre-authorized, short-lived download URL for an existing
+	 * file. Confirmed by hand this step is required, not optional: Graph's
+	 * /content endpoint 302s to a my.microsoftpersonalcontent.com URL with
+	 * its own signed `tempauth` embedded in the query string, and that host
+	 * rejects our Graph-audience Authorization header outright (401
+	 * "Unauthenticated" -- a token-audience mismatch, not a scope problem)
+	 * if it's forwarded there. Called once per download job with
+	 * `redirection => 0` so wp_remote_get() never auto-follows and leaks
+	 * that header onto the resolved URL itself; download_chunk() then hits
+	 * the resolved URL with no Authorization header at all, the same way
+	 * the resumable uploadUrl needs none.
+	 *
+	 * @return string|\WP_Error
+	 */
+	public static function resolve_download_url( $file_id ) {
+		$token = self::get_valid_access_token();
+
+		if ( is_wp_error( $token ) ) {
+			return $token;
+		}
+
+		$response = wp_remote_get(
+			self::GRAPH_BASE . '/me/drive/items/' . rawurlencode( $file_id ) . '/content',
+			array(
+				'timeout'     => 30,
+				'redirection' => 0,
+				'headers'     => array( 'Authorization' => 'Bearer ' . $token ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code     = wp_remote_retrieve_response_code( $response );
+		$location = wp_remote_retrieve_header( $response, 'location' );
+
+		if ( $code >= 300 && $code < 400 && $location ) {
+			return $location;
+		}
+
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		return new \WP_Error( 'wpvault_onedrive_api_error', self::error_message_from_response( $data, $code ) );
+	}
+
+	/**
+	 * Downloads one byte range from an already-resolved download URL (see
+	 * resolve_download_url()) -- confirmed by hand to return 206 Partial
+	 * Content for a Range request with no Authorization header needed.
+	 *
+	 * @return string|\WP_Error Raw bytes for this range.
+	 */
+	public static function download_chunk( $download_url, $offset, $length ) {
+		$last_byte = $offset + $length - 1;
+
+		$response = wp_remote_get(
+			$download_url,
+			array(
+				'timeout' => 120,
+				'headers' => array( 'Range' => "bytes={$offset}-{$last_byte}" ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+
+		if ( 206 !== $code && 200 !== $code ) {
+			return new \WP_Error(
+				'wpvault_onedrive_api_error',
+				sprintf(
+					/* translators: %d: HTTP status code OneDrive returned */
+					__( 'OneDrive returned an unexpected error (HTTP %d) while downloading.', 'wpvault' ),
+					$code
+				)
+			);
+		}
+
+		return wp_remote_retrieve_body( $response );
+	}
 }

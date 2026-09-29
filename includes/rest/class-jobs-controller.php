@@ -145,6 +145,16 @@ class Jobs_Controller {
 			$data['onedrive'] = $backup ? array( 'link' => $backup->onedrive_link ) : null;
 		}
 
+		if ( Job_Store::STATUS_COMPLETED === $job->status && in_array( $job->type, array( Job_Store::TYPE_DRIVE_IMPORT, Job_Store::TYPE_ONEDRIVE_IMPORT ), true ) ) {
+			$backup         = Backup_Store::get_by_id( $job->backup_id );
+			$data['backup'] = $backup ? array(
+				'id'           => (int) $backup->id,
+				'status'       => $backup->status,
+				'package_size' => (int) $backup->package_size,
+				'download_url' => \WPVault\Admin\Download_Handler::url( $backup->id ),
+			) : null;
+		}
+
 		if ( Job_Store::STATUS_FAILED === $job->status ) {
 			$data['logs'] = array_map(
 				static function ( $log ) {

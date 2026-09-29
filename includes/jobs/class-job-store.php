@@ -28,6 +28,8 @@ class Job_Store {
 	const TYPE_RESTORE         = 'restore';
 	const TYPE_DRIVE_UPLOAD    = 'drive_upload';
 	const TYPE_ONEDRIVE_UPLOAD = 'onedrive_upload';
+	const TYPE_DRIVE_IMPORT    = 'drive_import';
+	const TYPE_ONEDRIVE_IMPORT = 'onedrive_import';
 
 	// Order matters: this is also the sequence Job_Runner advances through.
 	const STATUS_QUEUED     = 'queued';

@@ -359,6 +359,133 @@
 		document.getElementById( 'wpvault-import-result' ).textContent = message;
 	}
 
+	// --- Import from cloud storage (Google Drive / OneDrive) ---------------
+	//
+	// A picker inside this same Import modal, listing .wpvault packages this
+	// site's own connected account already has (via list_backup_files() on
+	// whichever provider). Selecting one starts a server-to-server download
+	// job (Drive_Import_Job / Onedrive_Import_Job) -- nothing for the
+	// browser to upload -- polled the same generic way every other job in
+	// this plugin is, then reloading on completion exactly like a
+	// local-file import does once its own backup row exists.
+
+	var cloudImportJobId = null;
+
+	function formatBytes( bytes ) {
+		if ( ! bytes ) {
+			return '0 B';
+		}
+
+		var units = [ 'B', 'KB', 'MB', 'GB', 'TB' ];
+		var i     = Math.floor( Math.log( bytes ) / Math.log( 1024 ) );
+
+		return ( bytes / Math.pow( 1024, i ) ).toFixed( 0 === i ? 0 : 1 ) + ' ' + units[ i ];
+	}
+
+	function openCloudImportPicker( provider ) {
+		if ( anyOtherBusy( 'import' ) ) {
+			window.alert( cfg.i18n.busyOpenOther );
+			return;
+		}
+
+		var title = 'drive' === provider ? cfg.i18n.cloudImportTitleDrive : cfg.i18n.cloudImportTitleOnedrive;
+
+		document.getElementById( 'wpvault-cloud-import-picker-title' ).textContent = title;
+		document.getElementById( 'wpvault-cloud-import-list' ).textContent = cfg.i18n.checkingBackup;
+		document.getElementById( 'wpvault-cloud-import-error' ).hidden = true;
+		document.getElementById( 'wpvault-import-form-card' ).hidden = true;
+		document.getElementById( 'wpvault-cloud-import-picker' ).hidden = false;
+
+		api( '/' + provider + '/import-list' ).then( function ( res ) {
+			if ( ! res.ok ) {
+				showCloudImportError( ( res.data && res.data.message ) || cfg.i18n.cloudImportListFailed );
+				return;
+			}
+
+			renderCloudImportList( provider, res.data.files || [] );
+		} ).catch( function () {
+			showCloudImportError( cfg.i18n.cloudImportListFailed );
+		} );
+	}
+
+	function showCloudImportError( message ) {
+		document.getElementById( 'wpvault-cloud-import-list' ).textContent = '';
+		document.getElementById( 'wpvault-cloud-import-error' ).hidden = false;
+		document.getElementById( 'wpvault-cloud-import-error' ).textContent = message;
+	}
+
+	function renderCloudImportList( provider, files ) {
+		var el = document.getElementById( 'wpvault-cloud-import-list' );
+
+		if ( ! files.length ) {
+			el.textContent = cfg.i18n.cloudImportEmpty;
+			return;
+		}
+
+		var html = '<table class="wpvault-cloud-import-table">';
+
+		files.forEach( function ( file ) {
+			html += '<tr>' +
+				'<td>' + escapeHtml( file.name ) + '</td>' +
+				'<td>' + escapeHtml( formatBytes( file.size ) ) + '</td>' +
+				'<td><button type="button" class="button wpvault-cloud-import-pick" data-provider="' + provider + '" data-file-id="' + escapeHtml( file.id ) + '">' + escapeHtml( cfg.i18n.cloudImportButton ) + '</button></td>' +
+				'</tr>';
+		} );
+
+		html += '</table>';
+		el.innerHTML = html;
+	}
+
+	function startCloudImport( provider, fileId ) {
+		document.getElementById( 'wpvault-cloud-import-picker' ).hidden = true;
+		document.getElementById( 'wpvault-import-progress-card' ).hidden = false;
+		document.getElementById( 'wpvault-import-progress-bar' ).style.width = '0%';
+		document.getElementById( 'wpvault-import-progress-percent' ).textContent = '0%';
+
+		importBusy = true;
+
+		api( '/backups/import-from-' + provider, 'POST', { file_id: fileId } ).then( function ( res ) {
+			if ( ! res.ok ) {
+				finishImportFailure( res.data.message || cfg.i18n.importFailed );
+				return;
+			}
+
+			cloudImportJobId = res.data.job_id;
+			pollCloudImport();
+		} ).catch( function () {
+			finishImportFailure( cfg.i18n.importFailed );
+		} );
+	}
+
+	function pollCloudImport() {
+		api( '/jobs/' + cloudImportJobId + '/step', 'POST' ).then( function ( res ) {
+			if ( ! res.ok ) {
+				finishImportFailure( ( res.data && res.data.message ) || cfg.i18n.importFailed );
+				return;
+			}
+
+			var job = res.data;
+
+			document.getElementById( 'wpvault-import-progress-bar' ).style.width = job.percent + '%';
+			document.getElementById( 'wpvault-import-progress-percent' ).textContent = job.percent + '%';
+
+			if ( 'completed' === job.status ) {
+				importBusy = false;
+				window.location.reload();
+				return;
+			}
+
+			if ( 'failed' === job.status || 'cancelled' === job.status ) {
+				finishImportFailure( job.error_message || cfg.i18n.importFailed );
+				return;
+			}
+
+			setTimeout( pollCloudImport, 800 );
+		} ).catch( function () {
+			finishImportFailure( cfg.i18n.importFailed );
+		} );
+	}
+
 	// --- Restore -----------------------------------------------------------
 
 	function openRestoreModal( backupId, date, size ) {
@@ -648,15 +775,19 @@
 	// --- Row actions: verify / delete ------------------------------------
 
 	document.addEventListener( 'click', function ( event ) {
-		var verifyBtn    = event.target.closest( '.wpvault-verify' );
-		var deleteBtn    = event.target.closest( '.wpvault-delete' );
-		var importBtn    = event.target.closest( '#wpvault-import-button' );
-		var openCreate   = event.target.closest( '#wpvault-open-create' );
-		var openImport   = event.target.closest( '#wpvault-open-import' );
-		var openRestore  = event.target.closest( '.wpvault-open-restore' );
-		var downloadGo   = event.target.closest( '.wpvault-download-go' );
-		var closeModalEl = event.target.closest( '[data-close-modal]' );
-		var overlay      = event.target.classList && event.target.classList.contains( 'wpvault-modal-overlay' ) ? event.target : null;
+		var verifyBtn      = event.target.closest( '.wpvault-verify' );
+		var deleteBtn      = event.target.closest( '.wpvault-delete' );
+		var importBtn      = event.target.closest( '#wpvault-import-button' );
+		var openCreate     = event.target.closest( '#wpvault-open-create' );
+		var openImport     = event.target.closest( '#wpvault-open-import' );
+		var openRestore    = event.target.closest( '.wpvault-open-restore' );
+		var downloadGo     = event.target.closest( '.wpvault-download-go' );
+		var closeModalEl   = event.target.closest( '[data-close-modal]' );
+		var overlay        = event.target.classList && event.target.classList.contains( 'wpvault-modal-overlay' ) ? event.target : null;
+		var openDriveImport   = event.target.closest( '#wpvault-import-from-drive' );
+		var openOnedriveImport = event.target.closest( '#wpvault-import-from-onedrive' );
+		var cloudImportPick   = event.target.closest( '.wpvault-cloud-import-pick' );
+		var cloudImportBack   = event.target.closest( '#wpvault-cloud-import-back' );
 
 		if ( openCreate ) {
 			openModal( 'create' );
@@ -664,6 +795,13 @@
 
 		if ( openImport ) {
 			openModal( 'import' );
+
+			if ( ! importBusy ) {
+				document.getElementById( 'wpvault-cloud-import-picker' ).hidden = true;
+				document.getElementById( 'wpvault-import-progress-card' ).hidden = true;
+				document.getElementById( 'wpvault-import-form-card' ).hidden = false;
+				document.getElementById( 'wpvault-import-result' ).textContent = '';
+			}
 		}
 
 		if ( openRestore ) {
@@ -717,6 +855,23 @@
 
 		if ( importBtn ) {
 			importFile();
+		}
+
+		if ( openDriveImport ) {
+			openCloudImportPicker( 'drive' );
+		}
+
+		if ( openOnedriveImport ) {
+			openCloudImportPicker( 'onedrive' );
+		}
+
+		if ( cloudImportPick ) {
+			startCloudImport( cloudImportPick.dataset.provider, cloudImportPick.dataset.fileId );
+		}
+
+		if ( cloudImportBack ) {
+			document.getElementById( 'wpvault-cloud-import-picker' ).hidden = true;
+			document.getElementById( 'wpvault-import-form-card' ).hidden = false;
 		}
 
 		if ( verifyBtn ) {

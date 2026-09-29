@@ -66,6 +66,22 @@
 	color: #1a7431;
 }
 
+.wpvault-cloud-import-table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.wpvault-cloud-import-table td {
+	padding: 6px 8px;
+	border-bottom: 1px solid #dcdcde;
+	vertical-align: middle;
+}
+
+.wpvault-cloud-import-table td:last-child {
+	text-align: right;
+	white-space: nowrap;
+}
+
 .wpvault-status-cell {
 	white-space: nowrap;
 }
