@@ -4,7 +4,6 @@ namespace WPVault\Admin;
 
 use WPVault\Backup\Backup_Store;
 use WPVault\Jobs\Job_Store;
-use WPVault\Storage\Local_Storage;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -47,8 +46,6 @@ class Dashboard_Page {
 
 		$backups = Backup_Store::get_all( 100 );
 		$latest  = $backups ? $backups[0] : null;
-		$used    = Local_Storage::used_space();
-		$free    = Local_Storage::free_space();
 
 		$latest_verified = null;
 
@@ -110,20 +107,6 @@ class Dashboard_Page {
 				<?php else : ?>
 					<p><?php esc_html_e( 'No backups yet. Create your first local backup to protect this WordPress site.', 'wpvault' ); ?></p>
 				<?php endif; ?>
-			</div>
-
-			<div class="wpvault-card">
-				<h2><?php esc_html_e( 'Local Storage', 'wpvault' ); ?></h2>
-				<p>
-					<?php
-					printf(
-						/* translators: 1: bytes used, 2: bytes available */
-						esc_html__( '%1$s used %2$s available', 'wpvault' ),
-						esc_html( size_format( $used ) ),
-						esc_html( null === $free ? __( '(unknown)', 'wpvault' ) : size_format( $free ) )
-					);
-					?>
-				</p>
 			</div>
 		</div>
 		<?php
