@@ -21,6 +21,16 @@ class Restore_Controller {
 	public function register_routes() {
 		register_rest_route(
 			Rest_Controller::NAMESPACE_V1,
+			'/backups/(?P<id>\d+)/restore-urls',
+			array(
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'restore_urls' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
 			'/backups/(?P<id>\d+)/restore-preflight',
 			array(
 				'methods'             => \WP_REST_Server::READABLE,
@@ -62,6 +72,28 @@ class Restore_Controller {
 		return $backup;
 	}
 
+	/**
+	 * Split out from preflight() on purpose: both of these are trivial reads
+	 * (a DB column, home_url()), unlike preflight()'s full package-integrity
+	 * re-check, which re-hashes the entire backup file and can take real
+	 * time for a large package. The modal calls this one first so the URL
+	 * fields fill in immediately instead of waiting on that.
+	 */
+	public function restore_urls( \WP_REST_Request $request ) {
+		$backup = $this->get_backup_or_404( $request );
+
+		if ( is_wp_error( $backup ) ) {
+			return $backup;
+		}
+
+		return rest_ensure_response(
+			array(
+				'old_url' => $backup->source_url,
+				'new_url' => home_url(),
+			)
+		);
+	}
+
 	public function preflight( \WP_REST_Request $request ) {
 		$backup = $this->get_backup_or_404( $request );
 
@@ -69,11 +101,7 @@ class Restore_Controller {
 			return $backup;
 		}
 
-		$result             = Preflight::check_restore( $backup );
-		$result['old_url']  = $backup->source_url;
-		$result['new_url']  = home_url();
-
-		return rest_ensure_response( $result );
+		return rest_ensure_response( Preflight::check_restore( $backup ) );
 	}
 
 	public function start_restore( \WP_REST_Request $request ) {

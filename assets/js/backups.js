@@ -503,13 +503,27 @@
 		document.getElementById( 'wpvault-create-snapshot' ).checked = true;
 		document.getElementById( 'wpvault-old-url' ).value = '';
 		document.getElementById( 'wpvault-new-url' ).value = '';
-		document.getElementById( 'wpvault-start-restore' ).disabled = false;
+		document.getElementById( 'wpvault-start-restore' ).disabled = true;
 
 		var preflightEl = document.getElementById( 'wpvault-restore-preflight' );
 		preflightEl.textContent = cfg.i18n.checkingRestore;
 		preflightEl.hidden = false;
 
 		document.getElementById( 'wpvault-restore-modal' ).hidden = false;
+
+		// Split from the integrity preflight below on purpose: this is a
+		// trivial read (a DB column, home_url()) that fills the URL fields
+		// right away, instead of leaving them blank for however long the
+		// preflight's full-package checksum re-verification takes on a
+		// large backup.
+		api( '/backups/' + backupId + '/restore-urls', 'GET' ).then( function ( res ) {
+			if ( restoreBackupId !== backupId || ! res.ok ) {
+				return;
+			}
+
+			document.getElementById( 'wpvault-old-url' ).value = res.data.old_url || '';
+			document.getElementById( 'wpvault-new-url' ).value = res.data.new_url || '';
+		} );
 
 		api( '/backups/' + backupId + '/restore-preflight', 'GET' ).then( function ( res ) {
 			if ( restoreBackupId !== backupId ) {
@@ -529,11 +543,9 @@
 	function renderRestorePreflight( result ) {
 		var el = document.getElementById( 'wpvault-restore-preflight' );
 
-		document.getElementById( 'wpvault-old-url' ).value = result.old_url || '';
-		document.getElementById( 'wpvault-new-url' ).value = result.new_url || '';
-
 		if ( result.ok ) {
 			el.hidden = true;
+			document.getElementById( 'wpvault-start-restore' ).disabled = false;
 			return;
 		}
 
