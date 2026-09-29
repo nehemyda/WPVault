@@ -17,6 +17,78 @@
 	margin-top: 0;
 }
 
+.wpvault-settings-layout {
+	display: flex;
+	align-items: flex-start;
+	gap: 20px;
+	margin-top: 16px;
+}
+
+.wpvault-settings-sidebar {
+	flex: 0 0 240px;
+	box-sizing: border-box;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 12px;
+}
+
+.wpvault-settings-search {
+	width: 100%;
+	box-sizing: border-box;
+	margin-bottom: 10px;
+}
+
+.wpvault-settings-nav {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.wpvault-settings-nav li {
+	margin: 0;
+}
+
+.wpvault-settings-nav li.is-hidden-by-search {
+	display: none;
+}
+
+.wpvault-settings-nav-item {
+	display: block;
+	padding: 8px 10px;
+	margin-bottom: 2px;
+	border-left: 3px solid transparent;
+	border-radius: 0 4px 4px 0;
+	color: #1d2327;
+	text-decoration: none;
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+.wpvault-settings-nav-item:hover {
+	background: #f0f0f1;
+}
+
+.wpvault-settings-nav-item.is-active {
+	background: #eef1fb;
+	border-left-color: #3858e9;
+	color: #3858e9;
+	font-weight: 600;
+}
+
+.wpvault-settings-content {
+	flex: 1;
+	min-width: 0;
+}
+
+.wpvault-settings-panel {
+	display: none;
+}
+
+.wpvault-settings-panel.is-active {
+	display: block;
+}
+
 .wpvault-progress {
 	background: #f0f0f1;
 	border-radius: 4px;

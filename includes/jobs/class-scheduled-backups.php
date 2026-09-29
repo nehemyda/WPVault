@@ -194,7 +194,7 @@ class Scheduled_Backups {
 			)
 		);
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_schedule_saved=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_schedule_saved=1#scheduled' ) );
 		exit;
 	}
 

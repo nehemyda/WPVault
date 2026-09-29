@@ -111,7 +111,7 @@ class Pre_Update_Backups {
 			)
 		);
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_pre_update_saved=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_pre_update_saved=1#pre-update' ) );
 		exit;
 	}
 

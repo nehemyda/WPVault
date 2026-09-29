@@ -91,7 +91,29 @@ class Settings_Page {
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'OneDrive disconnected.', 'wpvault' ); ?></p></div>
 			<?php endif; ?>
 
-			<div class="wpvault-card">
+			<?php if ( isset( $_GET['wpvault_gdrive_retention_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive retention saved.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_onedrive_retention_saved'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'OneDrive retention saved.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<div class="wpvault-settings-layout">
+				<nav class="wpvault-settings-sidebar">
+					<input type="search" id="wpvault-settings-search" class="wpvault-settings-search" placeholder="<?php esc_attr_e( 'Search settings…', 'wpvault' ); ?>">
+					<ul class="wpvault-settings-nav">
+						<li><a href="#scheduled" class="wpvault-settings-nav-item" data-panel="scheduled"><?php esc_html_e( 'Scheduled Backups', 'wpvault' ); ?></a></li>
+						<li><a href="#pre-update" class="wpvault-settings-nav-item" data-panel="pre-update"><?php esc_html_e( 'Pre-Update Backups', 'wpvault' ); ?></a></li>
+						<li><a href="#cloud-storage" class="wpvault-settings-nav-item" data-panel="cloud-storage"><?php esc_html_e( 'Cloud Storage', 'wpvault' ); ?></a></li>
+						<li><a href="#general" class="wpvault-settings-nav-item" data-panel="general"><?php esc_html_e( 'General', 'wpvault' ); ?></a></li>
+						<li><a href="#diagnostics" class="wpvault-settings-nav-item" data-panel="diagnostics"><?php esc_html_e( 'Diagnostics', 'wpvault' ); ?></a></li>
+					</ul>
+				</nav>
+
+				<div class="wpvault-settings-content">
+
+			<div class="wpvault-card wpvault-settings-panel" id="wpvault-panel-scheduled">
 				<h2><?php esc_html_e( 'Scheduled Backups', 'wpvault' ); ?></h2>
 
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -251,7 +273,7 @@ class Settings_Page {
 				<?php endif; ?>
 			</div>
 
-			<div class="wpvault-card">
+			<div class="wpvault-card wpvault-settings-panel" id="wpvault-panel-pre-update">
 				<h2><?php esc_html_e( 'Pre-Update Backups', 'wpvault' ); ?></h2>
 				<p class="description"><?php esc_html_e( 'Automatically back up right before a plugin, theme, or core update is applied -- including background auto-updates. If the backup can\'t finish within a short window, the update proceeds anyway; it is never blocked or delayed for long over this.', 'wpvault' ); ?></p>
 
@@ -349,6 +371,8 @@ class Settings_Page {
 				<?php endif; ?>
 			</div>
 
+			<div class="wpvault-settings-panel" id="wpvault-panel-cloud-storage">
+
 			<div class="wpvault-card">
 				<h2><?php esc_html_e( 'Google Drive', 'wpvault' ); ?></h2>
 				<p class="description">
@@ -371,7 +395,10 @@ class Settings_Page {
 						<p><code id="wpvault-gdrive-user-code" style="font-size:1.4em"></code></p>
 						<p><a id="wpvault-gdrive-verification-url" href="#" target="_blank" rel="noopener noreferrer"></a></p>
 					</div>
-					<p id="wpvault-gdrive-device-status" class="description"></p>
+					<p class="description">
+						<span id="wpvault-gdrive-spinner" class="spinner" style="float:none;vertical-align:middle"></span>
+						<span id="wpvault-gdrive-device-status"></span>
+					</p>
 
 					<p class="description">
 						<?php esc_html_e( 'WPVault only ever requests the drive.file scope: access to files this plugin itself creates in your Drive, never your existing files.', 'wpvault' ); ?>
@@ -385,6 +412,18 @@ class Settings_Page {
 							esc_html( Google_Drive::get_connected_email() )
 						);
 						?>
+					</p>
+					<p>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<label for="wpvault-gdrive-retention"><?php esc_html_e( 'Keep at most this many backups in Google Drive (0 = unlimited):', 'wpvault' ); ?></label>
+							<input type="hidden" name="action" value="wpvault_gdrive_save_retention">
+							<?php wp_nonce_field( 'wpvault_gdrive_save_retention' ); ?>
+							<input type="number" min="0" max="90" name="retention" id="wpvault-gdrive-retention" value="<?php echo esc_attr( Google_Drive::get_retention() ); ?>" style="width:80px">
+							<button type="submit" class="button"><?php esc_html_e( 'Save', 'wpvault' ); ?></button>
+						</form>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'Applies to every upload to Google Drive, whatever started it -- scheduled, "Backup Now", or the on-demand dropdown. Older copies beyond this count are deleted from Drive only; the local backup they came from is never affected.', 'wpvault' ); ?>
 					</p>
 					<p>
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
@@ -418,7 +457,10 @@ class Settings_Page {
 						<p><code id="wpvault-onedrive-user-code" style="font-size:1.4em"></code></p>
 						<p><a id="wpvault-onedrive-verification-url" href="#" target="_blank" rel="noopener noreferrer"></a></p>
 					</div>
-					<p id="wpvault-onedrive-device-status" class="description"></p>
+					<p class="description">
+						<span id="wpvault-onedrive-spinner" class="spinner" style="float:none;vertical-align:middle"></span>
+						<span id="wpvault-onedrive-device-status"></span>
+					</p>
 
 					<p class="description">
 						<?php esc_html_e( 'WPVault only ever requests the Files.ReadWrite.AppFolder scope: access to a single app-only folder in your OneDrive, never your existing files.', 'wpvault' ); ?>
@@ -434,6 +476,18 @@ class Settings_Page {
 						?>
 					</p>
 					<p>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<label for="wpvault-onedrive-retention"><?php esc_html_e( 'Keep at most this many backups in OneDrive (0 = unlimited):', 'wpvault' ); ?></label>
+							<input type="hidden" name="action" value="wpvault_onedrive_save_retention">
+							<?php wp_nonce_field( 'wpvault_onedrive_save_retention' ); ?>
+							<input type="number" min="0" max="90" name="retention" id="wpvault-onedrive-retention" value="<?php echo esc_attr( One_Drive::get_retention() ); ?>" style="width:80px">
+							<button type="submit" class="button"><?php esc_html_e( 'Save', 'wpvault' ); ?></button>
+						</form>
+					</p>
+					<p class="description">
+						<?php esc_html_e( 'Applies to every upload to OneDrive, whatever started it -- scheduled, "Backup Now", or the on-demand dropdown. Older copies beyond this count are deleted from OneDrive only; the local backup they came from is never affected.', 'wpvault' ); ?>
+					</p>
+					<p>
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
 							<input type="hidden" name="action" value="wpvault_onedrive_disconnect">
 							<?php wp_nonce_field( 'wpvault_onedrive_disconnect' ); ?>
@@ -443,7 +497,9 @@ class Settings_Page {
 				<?php endif; ?>
 			</div>
 
-			<div class="wpvault-card">
+			</div>
+
+			<div class="wpvault-card wpvault-settings-panel" id="wpvault-panel-general">
 				<h2><?php esc_html_e( 'General', 'wpvault' ); ?></h2>
 				<table class="form-table">
 					<tr>
@@ -471,7 +527,7 @@ class Settings_Page {
 				</table>
 			</div>
 
-			<div class="wpvault-card">
+			<div class="wpvault-card wpvault-settings-panel" id="wpvault-panel-diagnostics">
 				<h2><?php esc_html_e( 'Diagnostics', 'wpvault' ); ?></h2>
 				<ul class="wpvault-checklist">
 					<?php foreach ( $preflight['checks'] as $check ) : ?>
@@ -481,6 +537,9 @@ class Settings_Page {
 						</li>
 					<?php endforeach; ?>
 				</ul>
+			</div>
+
+				</div>
 			</div>
 		</div>
 		<?php
