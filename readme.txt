@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.6
+Stable tag: 0.9.11
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,9 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.9.11 =
+* Restore: the Old URL/New URL fields in the restore popup now fill in immediately instead of waiting on the same request that re-verifies the entire backup package's checksum -- a real, visible delay on a large backup. The "Create Safety Snapshot & Restore" button now correctly waits for that integrity check to pass before enabling, instead of starting out clickable.
 
 = 0.9.6 =
 * Import: added "Import from Google Drive" and "Import from OneDrive" next to the existing "Choose File" upload -- picks a `.wpvault` package already sitting in that connected account and pulls it in directly, server to server, with no browser upload involved. Works across sites too, as long as both are connected under the same Google/Microsoft account.
