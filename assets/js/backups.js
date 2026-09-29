@@ -16,6 +16,7 @@
 	var restoreCancelled = false;
 	var restoreBackupId  = null;
 	var restoreBusy      = false; // true from "Start Restore" click until completed/failed
+	var restoreLastStatus = ''; // last job.status seen while polling, so Cancel knows whether the live site was ever actually touched
 
 	var cloudBusy = { drive: false, onedrive: false }; // true from opening a cloud-upload modal until completed/failed
 
@@ -82,7 +83,8 @@
 				return;
 			}
 
-			if ( 'restore' === name && restoreBusy && ! window.confirm( cfg.i18n.closeRestoreConfirm ) ) {
+			if ( 'restore' === name && restoreBusy ) {
+				window.alert( cfg.i18n.restoreCloseBlocked );
 				return;
 			}
 
@@ -107,6 +109,27 @@
 		event.returnValue = cfg.i18n.leaveWarning; // Most browsers show their own generic text instead of this, by design.
 		return cfg.i18n.leaveWarning;
 	} );
+
+	// A restore actually overwrites live files and database tables while it
+	// runs, unlike backup/import/cloud-upload which only ever touch a temp
+	// package -- so once one is in progress, every click anywhere outside
+	// its own modal (the wp-admin menu, the admin bar, any other button on
+	// this page) is blocked here in the capture phase, before it can reach
+	// its normal handler. The only way out is the modal's own "Cancel
+	// Restore" button.
+	document.addEventListener( 'click', function ( event ) {
+		if ( ! restoreBusy ) {
+			return;
+		}
+
+		if ( event.target.closest( '#wpvault-restore-modal' ) ) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		window.alert( cfg.i18n.restoreBlockedNav );
+	}, true );
 
 	// --- Create backup ------------------------------------------------
 
@@ -422,8 +445,9 @@
 				return;
 			}
 
-			restoreJobId    = res.data.job_id;
+			restoreJobId     = res.data.job_id;
 			restoreCancelled = false;
+			restoreLastStatus = 'queued';
 			document.getElementById( 'wpvault-restore-confirm-card' ).hidden = true;
 			document.getElementById( 'wpvault-restore-progress-card' ).hidden = false;
 			pollRestore();
@@ -441,6 +465,8 @@
 			}
 
 			var job = res.data;
+
+			restoreLastStatus = job.status;
 
 			document.getElementById( 'wpvault-restore-progress-bar' ).style.width = job.percent + '%';
 			document.getElementById( 'wpvault-restore-progress-percent' ).textContent = job.percent + '%';
@@ -465,6 +491,33 @@
 
 			setTimeout( pollRestore, 800 );
 		} );
+	}
+
+	function cancelRestore() {
+		if ( ! window.confirm( cfg.i18n.restoreCancelConfirm ) ) {
+			return;
+		}
+
+		// Live files/database are only ever touched once the restore moves
+		// past its own safety-snapshot phase (advance_to_extracting() in
+		// Restore_Job) -- cancelling before that, the site was never
+		// touched, and the still-running snapshot backup gets cancelled
+		// right along with it (Job_Runner::cancel()), so there is no
+		// snapshot to point anyone at.
+		var siteWasTouched = 'queued' !== restoreLastStatus && 'snapshot' !== restoreLastStatus;
+
+		restoreCancelled = true;
+		restoreBusy      = false;
+
+		if ( restoreJobId ) {
+			api( '/jobs/' + restoreJobId + '/cancel', 'POST' );
+		}
+
+		document.getElementById( 'wpvault-restore-progress-card' ).hidden = true;
+		document.getElementById( 'wpvault-restore-result-card' ).hidden = false;
+		document.getElementById( 'wpvault-restore-result-card' ).textContent = siteWasTouched
+			? cfg.i18n.restoreCancelledResult
+			: cfg.i18n.restoreCancelledSafe;
 	}
 
 	// --- Save to cloud storage (Google Drive / OneDrive) ---------------------
@@ -732,6 +785,7 @@
 		openAutoOpen();
 
 		document.getElementById( 'wpvault-start-restore' ).addEventListener( 'click', startRestore );
+		document.getElementById( 'wpvault-cancel-restore' ).addEventListener( 'click', cancelRestore );
 
 		document.getElementById( 'wpvault-start-backup' ).addEventListener( 'click', startBackup );
 		document.getElementById( 'wpvault-cancel-backup' ).addEventListener( 'click', cancelBackup );

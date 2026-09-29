@@ -64,7 +64,11 @@ class Backups_Page {
 					'leaveWarning'           => __( 'A backup, import, restore, or cloud upload is in progress. Leaving now may interrupt it.', 'wpvault' ),
 					'closeBackupConfirm'     => __( 'A backup is in progress. Close this window anyway? The backup itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
 					'closeImportConfirm'     => __( 'An import is uploading. Close this window anyway? The upload will be interrupted and will need to be started over.', 'wpvault' ),
-					'closeRestoreConfirm'    => __( 'A restore is in progress. Close this window anyway? The restore itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
+					'restoreCloseBlocked'    => __( 'A restore is in progress. Use the "Cancel Restore" button to stop it -- this window can\'t be closed any other way.', 'wpvault' ),
+					'restoreBlockedNav'      => __( 'A restore is in progress and cannot be interrupted by navigating away. Click "Cancel Restore" first if you need to stop it.', 'wpvault' ),
+					'restoreCancelConfirm'   => __( 'Cancel this restore? If files or database tables have already been partially replaced, the site may be left in a mixed, broken state until you restore the safety snapshot yourself from the Backups list.', 'wpvault' ),
+					'restoreCancelledResult' => __( 'Restore cancelled. If the site looks broken, restore the safety snapshot that was taken before this restore started.', 'wpvault' ),
+					'restoreCancelledSafe'   => __( 'Restore cancelled before any changes were made to the site -- nothing was modified. The safety snapshot that was still being created was cancelled too, so there is nothing to restore from.', 'wpvault' ),
 					'closeDriveConfirm'      => __( 'A Google Drive upload is in progress. Close this window anyway? The upload itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
 					'closeOnedriveConfirm'   => __( 'A OneDrive upload is in progress. Close this window anyway? The upload itself keeps running in the background, but you will lose this progress view.', 'wpvault' ),
 					'busyOpenOther'          => __( 'Please wait for the current backup, import, restore, or cloud upload to finish first.', 'wpvault' ),
@@ -308,7 +312,12 @@ class Backups_Page {
 							&middot;
 							<span id="wpvault-restore-progress-current"></span>
 						</p>
-						<p class="description"><?php esc_html_e( 'You can leave this page -- the restore keeps running and will pick back up on its own if it gets interrupted.', 'wpvault' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Please keep this tab open until the restore finishes. Cancelling now can leave the site in a partially-restored state -- only do this if something has clearly gone wrong.', 'wpvault' ); ?></p>
+						<p>
+							<button type="button" id="wpvault-cancel-restore" class="button">
+								<?php esc_html_e( 'Cancel Restore', 'wpvault' ); ?>
+							</button>
+						</p>
 					</div>
 
 					<div id="wpvault-restore-result-card" hidden></div>

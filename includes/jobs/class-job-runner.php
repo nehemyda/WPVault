@@ -117,9 +117,31 @@ class Job_Runner {
 
 		$job = Job_Store::update( $job_id, array( 'status' => Job_Store::STATUS_CANCELLED, 'phase' => Job_Store::STATUS_CANCELLED ) );
 		self::mark_backup_failed_if_producing( $job );
+		self::cancel_snapshot_if_restoring( $job );
 		Local_Storage::remove_job_temp_dir( self::job_token( $job_id ) );
 
 		return $job;
+	}
+
+	/**
+	 * A restore's own safety-snapshot backup (Restore_Job::begin()) is a
+	 * separate, independently-stepped job, not a sub-step of the restore job
+	 * itself -- cancelling the restore while that snapshot is still running
+	 * would otherwise leave it stepping on unattended via cron/Dashboard
+	 * polling with no visible link back to the restore the user just
+	 * cancelled.
+	 */
+	private static function cancel_snapshot_if_restoring( $job ) {
+		if ( Job_Store::TYPE_RESTORE !== $job->type ) {
+			return;
+		}
+
+		$payload      = Job_Store::get_payload( $job );
+		$snapshot_id  = isset( $payload['snapshot_job_id'] ) ? (int) $payload['snapshot_job_id'] : 0;
+
+		if ( $snapshot_id ) {
+			self::cancel( $snapshot_id );
+		}
 	}
 
 	/**
