@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WPVault Privacy Policy</title>
+<meta name="description" content="What WPVault's optional Google Drive backup feature accesses, where the data lives, and how to remove it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1b1f23;
+    --ink-soft: #4b5259;
+    --ink-faint: #7a828a;
+    --ground: #faf9f6;
+    --surface: #ffffff;
+    --line: #e4e1d9;
+    --accent: #1f4d43;
+    --accent-soft: #e7efec;
+    --code-bg: #f0eee7;
+    color-scheme: light;
+  }
+
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --ink: #eceae4;
+      --ink-soft: #b7bcc2;
+      --ink-faint: #888f97;
+      --ground: #14171a;
+      --surface: #1b1f23;
+      --line: #2c3136;
+      --accent: #7fc2af;
+      --accent-soft: #1e2a27;
+      --code-bg: #23272b;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ink: #eceae4;
+    --ink-soft: #b7bcc2;
+    --ink-faint: #888f97;
+    --ground: #14171a;
+    --surface: #1b1f23;
+    --line: #2c3136;
+    --accent: #7fc2af;
+    --accent-soft: #1e2a27;
+    --code-bg: #23272b;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.7;
+    padding: 48px 16px 96px;
+  }
+
+  h1, h2 {
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-weight: 600;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+
+  .page {
+    max-width: 1040px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 700px);
+    gap: 56px;
+    align-items: start;
+  }
+
+  @media (max-width: 860px) {
+    .page {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .toc {
+      position: static !important;
+      order: 2;
+    }
+    .doc {
+      order: 1;
+    }
+  }
+
+  header.hero {
+    max-width: 700px;
+    margin: 0 auto 40px;
+    grid-column: 1 / -1;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+
+  .eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  h1 {
+    font-size: clamp(30px, 4.5vw, 40px);
+    line-height: 1.15;
+    margin: 0 0 14px;
+  }
+
+  .dek {
+    color: var(--ink-soft);
+    font-size: 16.5px;
+    max-width: 56ch;
+    margin: 0 0 18px;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    font-size: 13.5px;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+  }
+
+  .meta-row strong {
+    color: var(--ink-soft);
+    font-weight: 600;
+  }
+
+  .toc {
+    position: sticky;
+    top: 24px;
+    font-size: 13.5px;
+  }
+
+  .toc-label {
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: toc;
+    border-left: 1px solid var(--line);
+  }
+
+  .toc li {
+    counter-increment: toc;
+  }
+
+  .toc a {
+    display: block;
+    padding: 7px 0 7px 16px;
+    margin-left: -1px;
+    border-left: 1px solid transparent;
+    color: var(--ink-soft);
+    text-decoration: none;
+  }
+
+  .toc a::before {
+    content: counter(toc) "  ";
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .toc a:hover {
+    color: var(--accent);
+    border-left-color: var(--accent);
+  }
+
+  .doc {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 40px clamp(20px, 4vw, 52px) 16px;
+  }
+
+  section {
+    padding-bottom: 34px;
+    margin-bottom: 34px;
+    border-bottom: 1px solid var(--line);
+    scroll-margin-top: 24px;
+  }
+
+  section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+
+  section h2 {
+    font-size: 21px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 14px;
+  }
+
+  section h2 .num {
+    font-family: "Source Sans 3", sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 6px;
+    padding: 2px 8px;
+    flex-shrink: 0;
+  }
+
+  section p {
+    margin: 0 0 14px;
+    color: var(--ink-soft);
+    max-width: 66ch;
+  }
+
+  section p:last-child {
+    margin-bottom: 0;
+  }
+
+  ul {
+    margin: 0 0 14px;
+    padding-left: 22px;
+    color: var(--ink-soft);
+    max-width: 62ch;
+  }
+
+  ul:last-child { margin-bottom: 0; }
+
+  li { margin-bottom: 7px; }
+  li:last-child { margin-bottom: 0; }
+
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.9em;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 2px 6px;
+    color: var(--ink);
+  }
+
+  a.inline {
+    color: var(--accent);
+    text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  .callout {
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 4px 0 18px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+  }
+
+  .callout strong { color: var(--ink); }
+
+  footer.doc-footer {
+    max-width: 700px;
+    margin: 40px auto 0;
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--ink-faint);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header class="hero">
+    <div class="eyebrow">Privacy Policy</div>
+    <h1>How WPVault handles your data</h1>
+    <p class="dek">This page explains what WPVault accesses through its optional Google Drive integration, where that data lives, and how to remove it — written to match exactly what the plugin's code does, not a generic template.</p>
+    <div class="meta-row">
+      <span><strong>Effective</strong> September 29, 2026</span>
+      <span><strong>Applies to</strong> the WPVault WordPress plugin</span>
+      <span><strong>Contact</strong> <a class="inline" href="mailto:nehemyda@gmail.com">nehemyda@gmail.com</a></span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-label">On this page</div>
+    <ol>
+      <li><a href="#what-is-wpvault">What WPVault is</a></li>
+      <li><a href="#drive-feature">The Google Drive feature</a></li>
+      <li><a href="#access">What we access, and don't</a></li>
+      <li><a href="#storage">Where your data is stored</a></li>
+      <li><a href="#sharing">Sharing your data</a></li>
+      <li><a href="#retention">Retention &amp; removal</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#children">Children's privacy</a></li>
+      <li><a href="#changes">Changes to this policy</a></li>
+      <li><a href="#contact">Contact us</a></li>
+    </ol>
+  </nav>
+
+  <main class="doc">
+    <section id="what-is-wpvault">
+      <h2><span class="num">1</span> What WPVault is</h2>
+      <p>WPVault is a self-hosted WordPress plugin that creates, stores, and restores backups of a WordPress website. It runs entirely on your own web server, inside your own WordPress installation.</p>
+      <p>There is no WPVault-operated server, database, or cloud service sitting in between. WPVault does not transmit your website's data to us at any point — whether or not you use the Google Drive feature described below.</p>
+    </section>
+
+    <section id="drive-feature">
+      <h2><span class="num">2</span> The Google Drive feature</h2>
+      <p>WPVault includes an optional feature that lets you save a copy of a backup to your own Google Drive account. It is off until you choose to connect it from the plugin's Settings screen.</p>
+      <p>When you click <strong>Connect Google Drive</strong>, WPVault asks Google for permission to a single scope:</p>
+      <div class="callout"><code>https://www.googleapis.com/auth/drive.file</code> — this scope only ever grants access to files that WPVault itself creates in your Drive.</div>
+      <p>WPVault cannot see, list, read, modify, or delete any file already in your Google Drive account — including files you created yourself, or files created by any other app.</p>
+    </section>
+
+    <section id="access">
+      <h2><span class="num">3</span> What we access, and what we don't</h2>
+      <p>Once connected, WPVault can:</p>
+      <ul>
+        <li>Create a folder named <strong>WPVault Backups</strong> in your Drive</li>
+        <li>Upload backup files it creates into that folder</li>
+        <li>Read back the files it uploaded — for example, to show you a link, or confirm an upload finished</li>
+      </ul>
+      <p>WPVault does not access, and never requests permission for:</p>
+      <ul>
+        <li>Any other file, folder, or shared drive in your Google account</li>
+        <li>Gmail, Google Contacts, Calendar, Photos, or any other Google service</li>
+        <li>Anything from your Google profile beyond the email address, used only to show which account is connected</li>
+      </ul>
+    </section>
+
+    <section id="storage">
+      <h2><span class="num">4</span> Where your data is stored</h2>
+      <p>Backup files are stored in two places: locally on your own web server — this happens regardless of Google Drive — and, if you choose, a copy in your own Google Drive account.</p>
+      <p>The access and refresh tokens Google issues when you connect are stored in your own WordPress database, alongside WPVault's other settings. We never receive, see, or have access to these tokens, or to any backup file, at any point.</p>
+      <p>WPVault is open-source and self-hosted. Every install runs independently on its owner's own infrastructure — there is no central WPVault server any of this data passes through.</p>
+    </section>
+
+    <section id="sharing">
+      <h2><span class="num">5</span> Sharing your data</h2>
+      <p>We do not sell, rent, trade, or otherwise share your Google Drive data — or any other data — with any third party. We cannot, in fact, access it in the first place; see Section 4.</p>
+      <p>Use of information received from Google APIs adheres to the <a class="inline" href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including the Limited Use requirements: WPVault only uses your Google Drive data to provide the backup-storage feature you explicitly requested, for no other purpose.</p>
+    </section>
+
+    <section id="retention">
+      <h2><span class="num">6</span> Retention &amp; removal</h2>
+      <p>The connection stays active until you disconnect it. You can:</p>
+      <ul>
+        <li>Click <strong>Disconnect</strong> next to Google Drive in WPVault's Settings — this deletes the stored tokens from your WordPress database and asks Google to revoke them</li>
+        <li>Revoke WPVault's access directly from your Google Account at <a class="inline" href="https://myaccount.google.com/permissions" target="_blank" rel="noopener">myaccount.google.com/permissions</a> — this works even without access to the WordPress site</li>
+      </ul>
+      <p>Backup files already uploaded to your Drive are not deleted automatically when you disconnect — they remain in your Drive folder like any other file you own, for you to keep or remove as you choose.</p>
+    </section>
+
+    <section id="security">
+      <h2><span class="num">7</span> Security</h2>
+      <p>Access and refresh tokens are stored using WordPress's standard options storage, protected by the same access controls — file permissions, database credentials, admin capabilities — that protect the rest of your WordPress installation. Keeping WordPress, PHP, and your hosting environment up to date helps keep this data secure, since WPVault relies on your server's own security rather than one of its own.</p>
+    </section>
+
+    <section id="children">
+      <h2><span class="num">8</span> Children's privacy</h2>
+      <p>WPVault is a website-administration tool intended for website owners and administrators. It is not directed at children, and we do not knowingly collect data from children.</p>
+    </section>
+
+    <section id="changes">
+      <h2><span class="num">9</span> Changes to this policy</h2>
+      <p>We may update this policy as the plugin's features change, and will update the effective date above when we do. Continuing to use the Google Drive feature after a change means you accept the updated policy.</p>
+    </section>
+
+    <section id="contact">
+      <h2><span class="num">10</span> Contact us</h2>
+      <p>Questions about this policy, or about how WPVault handles your data, can be sent to <a class="inline" href="mailto:nehemyda@gmail.com">nehemyda@gmail.com</a>.</p>
+    </section>
+  </main>
+
+  <footer class="doc-footer">WPVault — local WordPress backup, restore, and migration.</footer>
+</div>
+
+</body>
+</html>
