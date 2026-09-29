@@ -137,6 +137,12 @@ class Onedrive_Upload_Job {
 				)
 			);
 
+			// Every upload counts toward the same cap regardless of what
+			// triggered it (scheduled, "Backup Now", on-demand dropdown --
+			// they all run through this same job class), so this belongs
+			// right after a successful upload, not gated to one trigger.
+			Backup_Store::prune_cloud_copies( 'onedrive', One_Drive::get_retention() );
+
 			return Job_Store::checkpoint(
 				$job->id,
 				array(

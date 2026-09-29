@@ -56,6 +56,7 @@ class Google_Drive {
 			'email'           => '',
 			'folder_id'       => '',
 			'needs_reconnect' => false,
+			'retention'       => 0, // 0 = keep every copy ever uploaded.
 		);
 	}
 
@@ -77,6 +78,32 @@ class Google_Drive {
 
 	public static function get_connected_email() {
 		return self::get_settings()['email'];
+	}
+
+	public static function get_retention() {
+		return (int) self::get_settings()['retention'];
+	}
+
+	/**
+	 * admin_post handler for the Settings screen's "keep at most N backups
+	 * in Google Drive" field -- separate from Scheduled_Backups' own local
+	 * retention setting, since it applies to every upload regardless of
+	 * what triggered it (scheduled, "Backup Now", or the on-demand
+	 * dropdown), not just scheduled ones.
+	 */
+	public static function handle_save_retention() {
+		if ( ! wpvault_can_manage() ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wpvault' ) );
+		}
+
+		check_admin_referer( 'wpvault_gdrive_save_retention' );
+
+		$retention = isset( $_POST['retention'] ) ? max( 0, min( 90, (int) $_POST['retention'] ) ) : 0;
+
+		self::save( array( 'retention' => $retention ) );
+
+		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_retention_saved=1#cloud-storage' ) );
+		exit;
 	}
 
 	/**
@@ -283,7 +310,7 @@ class Google_Drive {
 			)
 		);
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_disconnected=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_gdrive_disconnected=1#cloud-storage' ) );
 		exit;
 	}
 
@@ -730,5 +757,45 @@ class Google_Drive {
 		}
 
 		return wp_remote_retrieve_body( $response );
+	}
+
+	/**
+	 * Deletes a file this app previously uploaded -- used by
+	 * Backup_Store::prune_cloud_copies() to enforce the "keep at most N"
+	 * retention setting. A 404 (already gone -- removed by hand from Drive,
+	 * say) is treated the same as success, since the end state either way
+	 * is "not there any more".
+	 *
+	 * @return true|\WP_Error
+	 */
+	public static function delete_file( $file_id ) {
+		$token = self::get_valid_access_token();
+
+		if ( is_wp_error( $token ) ) {
+			return $token;
+		}
+
+		$response = wp_remote_request(
+			self::API_BASE . '/files/' . rawurlencode( $file_id ),
+			array(
+				'method'  => 'DELETE',
+				'timeout' => 30,
+				'headers' => array( 'Authorization' => 'Bearer ' . $token ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+
+		if ( ( $code >= 200 && $code < 300 ) || 404 === $code ) {
+			return true;
+		}
+
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		return new \WP_Error( 'wpvault_gdrive_api_error', self::error_message_from_response( $data, $code ) );
 	}
 }

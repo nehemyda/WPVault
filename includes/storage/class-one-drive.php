@@ -56,6 +56,7 @@ class One_Drive {
 			'expires_at'      => 0,
 			'email'           => '',
 			'needs_reconnect' => false,
+			'retention'       => 0, // 0 = keep every copy ever uploaded.
 		);
 	}
 
@@ -77,6 +78,31 @@ class One_Drive {
 
 	public static function get_connected_email() {
 		return self::get_settings()['email'];
+	}
+
+	public static function get_retention() {
+		return (int) self::get_settings()['retention'];
+	}
+
+	/**
+	 * admin_post handler for the Settings screen's "keep at most N backups
+	 * in OneDrive" field -- see Google_Drive::handle_save_retention()'s
+	 * docblock for why this is separate from Scheduled_Backups' own local
+	 * retention setting.
+	 */
+	public static function handle_save_retention() {
+		if ( ! wpvault_can_manage() ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wpvault' ) );
+		}
+
+		check_admin_referer( 'wpvault_onedrive_save_retention' );
+
+		$retention = isset( $_POST['retention'] ) ? max( 0, min( 90, (int) $_POST['retention'] ) ) : 0;
+
+		self::save( array( 'retention' => $retention ) );
+
+		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_onedrive_retention_saved=1#cloud-storage' ) );
+		exit;
 	}
 
 	/**
@@ -250,7 +276,7 @@ class One_Drive {
 			)
 		);
 
-		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_onedrive_disconnected=1' ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=wpvault-settings&wpvault_onedrive_disconnected=1#cloud-storage' ) );
 		exit;
 	}
 
@@ -638,5 +664,44 @@ class One_Drive {
 		}
 
 		return wp_remote_retrieve_body( $response );
+	}
+
+	/**
+	 * Deletes a file this app previously uploaded -- used by
+	 * Backup_Store::prune_cloud_copies() to enforce the "keep at most N"
+	 * retention setting. A 404 (already gone) is treated as success, same
+	 * reasoning as Google_Drive::delete_file().
+	 *
+	 * @return true|\WP_Error
+	 */
+	public static function delete_file( $file_id ) {
+		$token = self::get_valid_access_token();
+
+		if ( is_wp_error( $token ) ) {
+			return $token;
+		}
+
+		$response = wp_remote_request(
+			self::GRAPH_BASE . '/me/drive/items/' . rawurlencode( $file_id ),
+			array(
+				'method'  => 'DELETE',
+				'timeout' => 30,
+				'headers' => array( 'Authorization' => 'Bearer ' . $token ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+
+		if ( ( $code >= 200 && $code < 300 ) || 404 === $code ) {
+			return true;
+		}
+
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+		return new \WP_Error( 'wpvault_onedrive_api_error', self::error_message_from_response( $data, $code ) );
 	}
 }

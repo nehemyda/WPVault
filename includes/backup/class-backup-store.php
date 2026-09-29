@@ -9,8 +9,11 @@
 
 namespace WPVault\Backup;
 
+use WPVault\Diagnostics\Log_Store;
 use WPVault\Jobs\Job_Store;
+use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
+use WPVault\Storage\One_Drive;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -210,6 +213,65 @@ class Backup_Store {
 			}
 
 			self::delete( $backup->id );
+		}
+	}
+
+	/**
+	 * Keeps only the $retention most recently uploaded copies of a backup
+	 * in a given cloud provider, deleting older ones from the provider
+	 * itself and clearing this row's own file-id/link columns so the UI
+	 * stops offering a link to a file that no longer exists there. Never
+	 * touches the local backup those copies came from.
+	 *
+	 * Deliberately independent of prune_by_origin() above: this caps how
+	 * many copies exist in the connected cloud account, not how many local
+	 * backups exist, so it applies no matter which trigger sent a backup
+	 * there -- scheduled, a one-off "Backup Now", or the on-demand dropdown
+	 * all count toward the same limit.
+	 *
+	 * @param string $provider  'drive' or 'onedrive'.
+	 * @param int    $retention Keep this many most-recent matches; 0 = keep them all (no-op).
+	 */
+	public static function prune_cloud_copies( $provider, $retention ) {
+		$retention = (int) $retention;
+
+		if ( $retention <= 0 ) {
+			return;
+		}
+
+		$file_column = 'drive' === $provider ? 'drive_file_id' : 'onedrive_file_id';
+		$link_column = 'drive' === $provider ? 'drive_link' : 'onedrive_link';
+
+		$uploaded = array_values(
+			array_filter(
+				self::get_all( 500 ),
+				static function ( $backup ) use ( $file_column ) {
+					return ! empty( $backup->$file_column );
+				}
+			)
+		);
+
+		if ( count( $uploaded ) <= $retention ) {
+			return;
+		}
+
+		foreach ( array_slice( $uploaded, $retention ) as $backup ) {
+			$deleted = 'drive' === $provider
+				? Google_Drive::delete_file( $backup->$file_column )
+				: One_Drive::delete_file( $backup->$file_column );
+
+			if ( is_wp_error( $deleted ) ) {
+				Log_Store::error( $deleted->get_error_message(), 'wpvault_cloud_prune_failed' );
+				continue;
+			}
+
+			self::update(
+				$backup->id,
+				array(
+					$file_column => null,
+					$link_column => null,
+				)
+			);
 		}
 	}
 }

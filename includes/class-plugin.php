@@ -63,6 +63,8 @@ class Plugin {
 
 		add_action( 'admin_post_wpvault_gdrive_disconnect', array( Google_Drive::class, 'handle_disconnect' ) );
 		add_action( 'admin_post_wpvault_onedrive_disconnect', array( One_Drive::class, 'handle_disconnect' ) );
+		add_action( 'admin_post_wpvault_gdrive_save_retention', array( Google_Drive::class, 'handle_save_retention' ) );
+		add_action( 'admin_post_wpvault_onedrive_save_retention', array( One_Drive::class, 'handle_save_retention' ) );
 
 		( new Rest_Controller() )->register();
 
