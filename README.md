@@ -14,6 +14,7 @@ Local WordPress backup, restore, and migration. Chunked, resumable, and verified
 - **Scheduled backups** — daily or weekly, at a set time, with automatic retention (keeps the N most recent *scheduled* backups only -- manual, CLI, and imported backups are never pruned)
 - **Pre-update backups** — automatically backs up right before a plugin, theme, or core update applies (including background auto-updates and WP-CLI updates), never blocking or failing the update itself
 - **Google Drive** — save a copy of any verified backup to your own Google Drive, connected with one click (no Google Cloud project or OAuth app to set up yourself): on demand from a dropdown next to each backup, automatically for every scheduled backup, or automatically for a one-off "Backup Now" -- an expired or revoked connection is detected and surfaced clearly rather than failing silently
+- **OneDrive** — the same save-a-copy feature, to your own OneDrive instead, with the same one-click device-code connect flow. Drive and OneDrive can both be enabled at once; a backup uploads to each in turn, and either one failing never affects the other or the backup itself
 - **WP-CLI** — `wp wpvault backup|backups|verify|restore|status|schedule|cleanup`, the same engine as the admin UI
 
 See `readme.txt` for the full feature list and version history.
@@ -40,13 +41,15 @@ See `readme.txt` for the full feature list and version history.
 
    Activation creates three database tables (`wp_wpvault_backups`, `wp_wpvault_jobs`, `wp_wpvault_logs`) and the local storage directory at `wp-content/wpvault/` (`backups/`, `temp/`, `logs/`), each protected from direct web access.
 
-3. Open **WPVault** in the wp-admin sidebar: Dashboard, Backups, and Settings. Backups is the hub for everything backup-related — create, import, restore, and history all live on that one screen, with create/import/restore each opening as a popup rather than a separate page. Scheduled backups, pre-update backups, and Google Drive are all configured on the Settings screen.
+3. Open **WPVault** in the wp-admin sidebar: Dashboard, Backups, and Settings. Backups is the hub for everything backup-related — create, import, restore, and history all live on that one screen, with create/import/restore each opening as a popup rather than a separate page. Scheduled backups, pre-update backups, Google Drive, and OneDrive are all configured on the Settings screen.
 
 Scheduled backups run through the same once-a-minute `wp_cron` safety net as everything else in this plugin: a separate 15-minute tick checks whether the configured time has arrived and, if so, starts a backup the exact same way the "Create Backup" button does. Like any `wp_cron` schedule, it only actually fires on a page load (or a real system cron hitting `wp-cron.php`) -- a site with zero traffic overnight won't back itself up until someone visits.
 
 Pre-update backups work differently: they hook `upgrader_pre_install`, the filter WordPress's own updater runs through right before touching files, and drive the backup job inline for up to 20 seconds before letting the update proceed regardless (the usual `wp_cron` safety net finishes the backup afterward if it needed more time). This covers plugin, theme, and core updates from wp-admin, WP-Cron background auto-updates, and WP-CLI's `wp plugin update` / `wp core update` alike, since they all go through the same code path. A bulk update in wp-admin fires that filter once per item (as separate requests, not a loop in one), so the feature uses a short-lived transient lock to collapse one browser bulk-update action into a single backup rather than one per plugin.
 
 **Google Drive** connects once and stays connected: Backups are always created locally first, exactly as before -- Drive is an extra copy, uploaded in chunks via a resumable session the same way everything else in this plugin is chunked, in any of three ways: on demand from a dropdown next to a verified backup ("Download to Local" vs "Save to Google Drive"), automatically after every scheduled backup (a checkbox on the Scheduled Backups settings once connected), or automatically for a one-off "Backup Now" (a checkbox in the Create Backup popup). In all three cases a Drive failure never fails the backup itself -- the local backup stays exactly as verified, just without a Drive copy, and the reason is logged. Connecting is one click: WPVault uses the OAuth 2.0 Device Authorization Grant against one Client ID shared by every install (no redirect URI needed, so it works identically on any domain) -- "Connect Google Drive" shows a short code, you enter it at a Google-hosted page, and WPVault detects the approval and finishes connecting on its own; no Google Cloud project or OAuth app to create yourself. The requested scope is `drive.file`, which only ever grants access to files this plugin itself creates in your Drive, never your existing files. If Google ever rejects the stored connection outright (revoked from your Google account, or the same Google account already granted this shared Client ID a connection for another site), WPVault detects that specifically and Settings shows a clear "reconnect" prompt instead of the same generic failure a transient network error would show.
+
+**OneDrive** works the same way as Google Drive, as a fully separate sibling implementation rather than a shared abstraction (`One_Drive`, `Onedrive_Upload_Job` -- deliberately not built on `Storage_Adapter` either): the same three upload triggers (on-demand dropdown, scheduled backups, "Backup Now"), the same never-fail-the-backup-on-upload-failure behavior, and the same one-click connect, using Microsoft's OAuth 2.0 Device Authorization Grant against one shared, public-client Azure app registration (no client secret, so it's safe to ship in the plugin) with the `Files.ReadWrite.AppFolder` scope -- access to a single app-specific OneDrive folder only, never your existing files. Unlike Google, Microsoft rotates the refresh token on every use, which WPVault accounts for when persisting it. If both Drive and OneDrive are enabled for the same backup, the upload phases run one after the other (Drive, then OneDrive), not in parallel, since a job occupies one upload phase at a time; either one failing doesn't block the other from being attempted.
 
 No build step — no Composer or npm dependencies. It's plain PHP (namespaced, PSR-ish autoloader) and vanilla JS/CSS.
 
@@ -77,9 +80,9 @@ includes/
   class-activator.php        class-deactivator.php
   capabilities.php           manage_wpvault capability
   backup/                    Scanner, database exporter, package builder, backup store
-  jobs/                      The chunked/resumable job engine (Job_Store, Job_Runner, Cron_Runner, Scheduled_Backups, Pre_Update_Backups, Drive_Upload_Job)
+  jobs/                      The chunked/resumable job engine (Job_Store, Job_Runner, Cron_Runner, Scheduled_Backups, Pre_Update_Backups, Drive_Upload_Job, Onedrive_Upload_Job)
   restore/                   Extractor, database importer, URL replacer, restore phase machine
-  storage/                   Local storage adapter (wp-content/wpvault/), Google Drive OAuth + API client
+  storage/                   Local storage adapter (wp-content/wpvault/), Google Drive and OneDrive OAuth + API clients
   security/                  Path-traversal guard used during extraction
   diagnostics/               Preflight checks, log store
   admin/                     The five wp-admin screens + the download handler
@@ -94,7 +97,7 @@ assets/
 
 - **Everything is a job.** Backup and restore both run as chunked jobs in `wpvault_jobs` — a bounded amount of work per `Job_Runner::step()` call, driven either by the browser polling a REST endpoint or by a once-a-minute cron tick if the browser goes away mid-job. Neither the admin UI, the REST API, nor WP-CLI have their own copy of the engine; they all call the same job/backup/restore classes.
 - **The package format is versioned** (`manifest.json`'s `format_version`) so newer plugin versions can keep reading older backups.
-- **Backups are always created locally first.** The `Storage_Adapter` interface exists for a future backup-engine-level remote backend, but Google Drive doesn't implement it -- it's deliberately a separate, on-demand "send an existing local backup there too" feature (`Google_Drive`, `Drive_Upload_Job`), not a replacement for where backups themselves get made.
+- **Backups are always created locally first.** The `Storage_Adapter` interface exists for a future backup-engine-level remote backend, but Google Drive and OneDrive don't implement it -- each is deliberately a separate, on-demand "send an existing local backup there too" feature (`Google_Drive`/`Drive_Upload_Job` and `One_Drive`/`Onedrive_Upload_Job`, kept as parallel siblings rather than a shared cloud-storage abstraction), not a replacement for where backups themselves get made.
 
 ## License
 

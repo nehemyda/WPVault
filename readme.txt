@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.2
+Stable tag: 0.9.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -28,6 +28,7 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 * Scheduled backups: daily or weekly, at a chosen time, with automatic retention that only ever prunes backups the schedule itself created
 * Pre-update backups: automatically backs up right before a plugin, theme, or core update is applied -- including background auto-updates and WP-CLI updates -- without ever blocking or failing the update
 * Google Drive: save a copy of any verified backup to your own Google Drive -- on demand from a dropdown on the Backups screen, automatically after every scheduled backup, or automatically for a one-off "Backup Now". One-click "Connect Google Drive": no Google Cloud project or OAuth app to create yourself, just a short code to enter at a Google-hosted page. WPVault only ever requests access to files it creates itself, never your existing Drive files. A Drive failure never fails the backup itself, and an expired or revoked connection is detected and surfaced as a clear "reconnect" prompt
+* OneDrive: the same save-a-copy feature as Google Drive -- on-demand dropdown, scheduled backups, or "Backup Now" -- but to your own OneDrive instead, with the same one-click "Connect OneDrive" device-code flow and no app registration to create yourself. Drive and OneDrive can both be enabled at once; a backup uploads to each in turn, and one provider failing never affects the other or the backup itself
 * WP-CLI: `wp wpvault backup`, `backups`, `verify`, `restore`, `status`, `schedule`, `cleanup` -- the same engine as the admin UI, useful for cron-driven backups and scripted restores
 
 == Where backups are stored ==
@@ -35,6 +36,9 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.9.3 =
+* OneDrive: save a copy of any verified backup to your own OneDrive, mirroring the Google Drive feature -- on-demand dropdown, scheduled backups, and "Backup Now" checkboxes, one-click "Connect OneDrive" device-code flow, and a "reconnect" prompt if the connection is ever revoked. Drive and OneDrive can be used together on the same backup.
 
 = 0.9.2 =
 * Google Drive: "Connect Google Drive" is now one click -- no Google Cloud project, OAuth app, or Client ID/Secret to create yourself. Connecting shows a short code to enter at a Google-hosted page, the same "device" sign-in flow TVs and streaming devices use, and WPVault detects when you've approved it automatically. Any site previously connected under the old per-site Client ID needs to reconnect once.
