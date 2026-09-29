@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.5
+Stable tag: 0.9.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,7 +24,7 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 * Restore any verified backup back onto this site -- chunked and resumable the same way backups are, with an automatic safety snapshot of the current state taken first by default
 * Serialization-aware URL replacement during restore, for when the site's URL has changed since the backup was made
 * wp-config.php and .htaccess are never overwritten by a restore
-* Import a `.wpvault` package made on a *different* site, then restore it here -- the same restore engine, safety snapshot, and URL replacement handle the rest
+* Import a `.wpvault` package made on a *different* site, then restore it here -- the same restore engine, safety snapshot, and URL replacement handle the rest. Bring the package in either by uploading it directly, or by picking it from your own connected Google Drive/OneDrive if it was saved there
 * Scheduled backups: daily or weekly, at a chosen time, with automatic retention that only ever prunes backups the schedule itself created
 * Pre-update backups: automatically backs up right before a plugin, theme, or core update is applied -- including background auto-updates and WP-CLI updates -- without ever blocking or failing the update
 * Google Drive: save a copy of any verified backup to your own Google Drive -- on demand from a dropdown on the Backups screen, automatically after every scheduled backup, or automatically for a one-off "Backup Now". One-click "Connect Google Drive": no Google Cloud project or OAuth app to create yourself, just a short code to enter at a Google-hosted page. WPVault only ever requests access to files it creates itself, never your existing Drive files. A Drive failure never fails the backup itself, and an expired or revoked connection is detected and surfaced as a clear "reconnect" prompt
@@ -36,6 +36,9 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.9.6 =
+* Import: added "Import from Google Drive" and "Import from OneDrive" next to the existing "Choose File" upload -- picks a `.wpvault` package already sitting in that connected account and pulls it in directly, server to server, with no browser upload involved. Works across sites too, as long as both are connected under the same Google/Microsoft account.
 
 = 0.9.5 =
 * Restore: once a restore starts, closing the popup or clicking anywhere else in wp-admin is now blocked -- only the "Cancel Restore" button in the progress view can stop it, since a restore (unlike backup or import) actually overwrites live files and database tables while running. Cancelling now also stops the safety-snapshot backup taken beforehand, instead of leaving it running in the background with no visible link back to the restore you cancelled.
