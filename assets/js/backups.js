@@ -17,7 +17,7 @@
 	var restoreBackupId  = null;
 	var restoreBusy      = false; // true from "Start Restore" click until completed/failed
 
-	var driveBusy = false; // true from opening the Drive modal until completed/failed
+	var cloudBusy = { drive: false, onedrive: false }; // true from opening a cloud-upload modal until completed/failed
 
 	function api( path, method, body ) {
 		var headers = { 'X-WP-Nonce': cfg.nonce };
@@ -58,9 +58,9 @@
 	// beforeunload never fires for those (the page itself never unloads).
 
 	function anyOtherBusy( name ) {
-		var flags = { create: backupBusy, import: importBusy, restore: restoreBusy, drive: driveBusy };
+		var flags = { create: backupBusy, import: importBusy, restore: restoreBusy, drive: cloudBusy.drive, onedrive: cloudBusy.onedrive };
 		delete flags[ name ];
-		return flags.create || flags.import || flags.restore || flags.drive;
+		return flags.create || flags.import || flags.restore || flags.drive || flags.onedrive;
 	}
 
 	function openModal( name ) {
@@ -86,7 +86,11 @@
 				return;
 			}
 
-			if ( 'drive' === name && driveBusy && ! window.confirm( cfg.i18n.closeDriveConfirm ) ) {
+			if ( 'drive' === name && cloudBusy.drive && ! window.confirm( cfg.i18n.closeDriveConfirm ) ) {
+				return;
+			}
+
+			if ( 'onedrive' === name && cloudBusy.onedrive && ! window.confirm( cfg.i18n.closeOnedriveConfirm ) ) {
 				return;
 			}
 		}
@@ -95,7 +99,7 @@
 	}
 
 	window.addEventListener( 'beforeunload', function ( event ) {
-		if ( ! backupBusy && ! importBusy && ! restoreBusy && ! driveBusy ) {
+		if ( ! backupBusy && ! importBusy && ! restoreBusy && ! cloudBusy.drive && ! cloudBusy.onedrive ) {
 			return;
 		}
 
@@ -141,15 +145,17 @@
 	}
 
 	function startBackup() {
-		var type           = document.querySelector( 'input[name="wpvault-type"]:checked' ).value;
-		var excludeCache   = document.getElementById( 'wpvault-exclude-cache' ).checked;
-		var uploadCheckbox = document.getElementById( 'wpvault-upload-to-drive' );
-		var uploadToDrive  = uploadCheckbox ? uploadCheckbox.checked : false;
+		var type              = document.querySelector( 'input[name="wpvault-type"]:checked' ).value;
+		var excludeCache      = document.getElementById( 'wpvault-exclude-cache' ).checked;
+		var uploadCheckbox    = document.getElementById( 'wpvault-upload-to-drive' );
+		var uploadToDrive     = uploadCheckbox ? uploadCheckbox.checked : false;
+		var onedriveCheckbox  = document.getElementById( 'wpvault-upload-to-onedrive' );
+		var uploadToOnedrive  = onedriveCheckbox ? onedriveCheckbox.checked : false;
 
 		document.getElementById( 'wpvault-start-backup' ).disabled = true;
 		backupBusy = true;
 
-		api( '/backups', 'POST', { type: type, exclude_cache: excludeCache, upload_to_drive: uploadToDrive } ).then( function ( res ) {
+		api( '/backups', 'POST', { type: type, exclude_cache: excludeCache, upload_to_drive: uploadToDrive, upload_to_onedrive: uploadToOnedrive } ).then( function ( res ) {
 			if ( ! res.ok ) {
 				backupBusy = false;
 				window.alert( res.data.message || cfg.i18n.backupFailed );
@@ -461,110 +467,130 @@
 		} );
 	}
 
-	// --- Save to Google Drive ------------------------------------------------
+	// --- Save to cloud storage (Google Drive / OneDrive) ---------------------
 	//
-	// The backup file already exists locally by the time this can be
-	// clicked (only verified rows offer it) -- this is a copy, not how the
-	// backup was made, so it's driven by the same generic /jobs/{id}/step
-	// polling loop as everything else, just uploading server-side instead
-	// of doing any local work.
+	// The backup file already exists locally by the time either of these can
+	// be clicked (only verified rows offer it) -- this is a copy, not how the
+	// backup was made, so both are driven by the same generic /jobs/{id}/step
+	// polling loop as everything else, just uploading server-side instead of
+	// doing any local work. The two providers differ only in REST path,
+	// dataset key, and i18n strings -- this factory is UI wiring shared for
+	// convenience, not a shared abstraction over their separate server-side
+	// OAuth/upload logic, which stays deliberately unmirrored.
 
-	function openDriveModal( backupId ) {
-		if ( anyOtherBusy( 'drive' ) ) {
-			window.alert( cfg.i18n.busyOpenOther );
-			return;
+	function makeCloudUpload( provider, restPath, linkDatasetKey, i18n ) {
+		function updateProgress( percent ) {
+			document.getElementById( 'wpvault-' + provider + '-progress-bar' ).style.width = percent + '%';
+			document.getElementById( 'wpvault-' + provider + '-progress-percent' ).textContent = percent + '%';
 		}
 
-		driveBusy = true;
-		document.getElementById( 'wpvault-drive-progress-card' ).hidden = false;
-		document.getElementById( 'wpvault-drive-result-card' ).hidden = true;
-		updateDriveProgress( 0 );
-		document.getElementById( 'wpvault-drive-modal' ).hidden = false;
-
-		api( '/backups/' + backupId + '/drive-upload', 'POST' ).then( function ( res ) {
-			if ( ! res.ok ) {
-				finishDriveFailure( res.data.message || cfg.i18n.driveFailed );
-				return;
-			}
-
-			pollDriveUpload( res.data.job_id, backupId );
-		} ).catch( function () {
-			finishDriveFailure( cfg.i18n.driveFailed );
-		} );
-	}
-
-	function pollDriveUpload( jobId, backupId ) {
-		api( '/jobs/' + jobId + '/step', 'POST' ).then( function ( res ) {
-			if ( ! res.ok ) {
-				finishDriveFailure( res.data.message || cfg.i18n.driveFailed );
-				return;
-			}
-
-			var job = res.data;
-
-			updateDriveProgress( job.percent );
-
-			if ( 'completed' === job.status ) {
-				driveBusy = false;
-				finishDriveSuccess( backupId, job.drive && job.drive.link ? job.drive.link : '' );
-				return;
-			}
-
-			if ( 'failed' === job.status || 'cancelled' === job.status ) {
-				finishDriveFailure( job.error_message || cfg.i18n.driveFailed );
-				return;
-			}
-
-			setTimeout( function () {
-				pollDriveUpload( jobId, backupId );
-			}, 800 );
-		} ).catch( function () {
-			finishDriveFailure( cfg.i18n.driveFailed );
-		} );
-	}
-
-	function finishDriveSuccess( backupId, link ) {
-		document.getElementById( 'wpvault-drive-progress-card' ).hidden = true;
-
-		var resultCard = document.getElementById( 'wpvault-drive-result-card' );
-		resultCard.hidden = false;
-		resultCard.innerHTML = '';
-
-		var p = document.createElement( 'p' );
-		p.appendChild( document.createTextNode( cfg.i18n.driveSaved + ' ' ) );
-
-		if ( link ) {
-			var a = document.createElement( 'a' );
-			a.href = link;
-			a.target = '_blank';
-			a.rel = 'noopener noreferrer';
-			a.textContent = cfg.i18n.viewOnDrive;
-			p.appendChild( a );
+		function finishFailure( message ) {
+			cloudBusy[ provider ] = false;
+			document.getElementById( 'wpvault-' + provider + '-progress-card' ).hidden = true;
+			document.getElementById( 'wpvault-' + provider + '-result-card' ).hidden = false;
+			document.getElementById( 'wpvault-' + provider + '-result-card' ).textContent = message;
 		}
 
-		resultCard.appendChild( p );
+		function finishSuccess( backupId, link ) {
+			document.getElementById( 'wpvault-' + provider + '-progress-card' ).hidden = true;
 
-		// So the row's own dropdown immediately offers "View on Google
-		// Drive" instead of "Save to Google Drive" again, without a reload.
-		var select = document.querySelector( '.wpvault-download-target[data-id="' + backupId + '"]' );
+			var resultCard = document.getElementById( 'wpvault-' + provider + '-result-card' );
+			resultCard.hidden = false;
+			resultCard.innerHTML = '';
 
-		if ( select && link ) {
-			select.dataset.driveLink = link;
-			select.options[ 1 ].textContent = cfg.i18n.viewOnDrive;
+			var p = document.createElement( 'p' );
+			p.appendChild( document.createTextNode( i18n.saved + ' ' ) );
+
+			if ( link ) {
+				var a = document.createElement( 'a' );
+				a.href = link;
+				a.target = '_blank';
+				a.rel = 'noopener noreferrer';
+				a.textContent = i18n.view;
+				p.appendChild( a );
+			}
+
+			resultCard.appendChild( p );
+
+			// So the row's own dropdown immediately offers "View on..."
+			// instead of "Save to..." again, without a reload.
+			var select = document.querySelector( '.wpvault-download-target[data-id="' + backupId + '"]' );
+
+			if ( select && link ) {
+				select.dataset[ linkDatasetKey ] = link;
+				var option = select.querySelector( 'option[value="' + provider + '"]' );
+				if ( option ) {
+					option.textContent = i18n.view;
+				}
+			}
 		}
+
+		function poll( jobId, backupId ) {
+			api( '/jobs/' + jobId + '/step', 'POST' ).then( function ( res ) {
+				if ( ! res.ok ) {
+					finishFailure( res.data.message || i18n.failed );
+					return;
+				}
+
+				var job = res.data;
+
+				updateProgress( job.percent );
+
+				if ( 'completed' === job.status ) {
+					cloudBusy[ provider ] = false;
+					finishSuccess( backupId, job[ provider ] && job[ provider ].link ? job[ provider ].link : '' );
+					return;
+				}
+
+				if ( 'failed' === job.status || 'cancelled' === job.status ) {
+					finishFailure( job.error_message || i18n.failed );
+					return;
+				}
+
+				setTimeout( function () {
+					poll( jobId, backupId );
+				}, 800 );
+			} ).catch( function () {
+				finishFailure( i18n.failed );
+			} );
+		}
+
+		return function ( backupId ) {
+			if ( anyOtherBusy( provider ) ) {
+				window.alert( cfg.i18n.busyOpenOther );
+				return;
+			}
+
+			cloudBusy[ provider ] = true;
+			document.getElementById( 'wpvault-' + provider + '-progress-card' ).hidden = false;
+			document.getElementById( 'wpvault-' + provider + '-result-card' ).hidden = true;
+			updateProgress( 0 );
+			document.getElementById( 'wpvault-' + provider + '-modal' ).hidden = false;
+
+			api( '/backups/' + backupId + '/' + restPath, 'POST' ).then( function ( res ) {
+				if ( ! res.ok ) {
+					finishFailure( res.data.message || i18n.failed );
+					return;
+				}
+
+				poll( res.data.job_id, backupId );
+			} ).catch( function () {
+				finishFailure( i18n.failed );
+			} );
+		};
 	}
 
-	function finishDriveFailure( message ) {
-		driveBusy = false;
-		document.getElementById( 'wpvault-drive-progress-card' ).hidden = true;
-		document.getElementById( 'wpvault-drive-result-card' ).hidden = false;
-		document.getElementById( 'wpvault-drive-result-card' ).textContent = message;
-	}
+	var openDriveModal = makeCloudUpload( 'drive', 'drive-upload', 'driveLink', {
+		saved:  cfg.i18n.driveSaved,
+		view:   cfg.i18n.viewOnDrive,
+		failed: cfg.i18n.driveFailed,
+	} );
 
-	function updateDriveProgress( percent ) {
-		document.getElementById( 'wpvault-drive-progress-bar' ).style.width = percent + '%';
-		document.getElementById( 'wpvault-drive-progress-percent' ).textContent = percent + '%';
-	}
+	var openOnedriveModal = makeCloudUpload( 'onedrive', 'onedrive-upload', 'onedriveLink', {
+		saved:  cfg.i18n.onedriveSaved,
+		view:   cfg.i18n.viewOnOnedrive,
+		failed: cfg.i18n.onedriveFailed,
+	} );
 
 	// --- Row actions: verify / delete ------------------------------------
 
@@ -597,12 +623,22 @@
 
 			if ( 'local' === select.value ) {
 				window.location.href = select.dataset.localUrl;
-			} else if ( select.dataset.driveLink ) {
-				window.open( select.dataset.driveLink, '_blank', 'noopener,noreferrer' );
-			} else if ( ! cfg.gdriveConnected ) {
-				window.alert( cfg.i18n.gdriveNotConnected );
-			} else {
-				openDriveModal( downloadGo.dataset.id );
+			} else if ( 'drive' === select.value ) {
+				if ( select.dataset.driveLink ) {
+					window.open( select.dataset.driveLink, '_blank', 'noopener,noreferrer' );
+				} else if ( ! cfg.gdriveConnected ) {
+					window.alert( cfg.i18n.gdriveNotConnected );
+				} else {
+					openDriveModal( downloadGo.dataset.id );
+				}
+			} else if ( 'onedrive' === select.value ) {
+				if ( select.dataset.onedriveLink ) {
+					window.open( select.dataset.onedriveLink, '_blank', 'noopener,noreferrer' );
+				} else if ( ! cfg.onedriveConnected ) {
+					window.alert( cfg.i18n.onedriveNotConnected );
+				} else {
+					openOnedriveModal( downloadGo.dataset.id );
+				}
 			}
 		}
 
@@ -620,6 +656,8 @@
 				overlayName = 'restore';
 			} else if ( overlay === document.getElementById( 'wpvault-drive-modal' ) ) {
 				overlayName = 'drive';
+			} else if ( overlay === document.getElementById( 'wpvault-onedrive-modal' ) ) {
+				overlayName = 'onedrive';
 			}
 			closeModal( overlayName, false );
 		}

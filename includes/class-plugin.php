@@ -13,6 +13,7 @@ use WPVault\Jobs\Scheduled_Backups;
 use WPVault\Rest\Rest_Controller;
 use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
+use WPVault\Storage\One_Drive;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -61,6 +62,7 @@ class Plugin {
 		add_action( 'admin_post_wpvault_save_pre_update', array( Pre_Update_Backups::class, 'handle_settings_save' ) );
 
 		add_action( 'admin_post_wpvault_gdrive_disconnect', array( Google_Drive::class, 'handle_disconnect' ) );
+		add_action( 'admin_post_wpvault_onedrive_disconnect', array( One_Drive::class, 'handle_disconnect' ) );
 
 		( new Rest_Controller() )->register();
 

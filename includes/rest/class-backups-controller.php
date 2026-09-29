@@ -17,6 +17,7 @@ use WPVault\Diagnostics\Preflight;
 use WPVault\Jobs\Job_Store;
 use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
+use WPVault\Storage\One_Drive;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -47,7 +48,11 @@ class Backups_Controller {
 							'default' => true,
 							'type'    => 'boolean',
 						),
-						'upload_to_drive' => array(
+						'upload_to_drive'    => array(
+							'default' => false,
+							'type'    => 'boolean',
+						),
+						'upload_to_onedrive' => array(
 							'default' => false,
 							'type'    => 'boolean',
 						),
@@ -93,6 +98,16 @@ class Backups_Controller {
 			array(
 				'methods'             => \WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'start_drive_upload' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+			)
+		);
+
+		register_rest_route(
+			Rest_Controller::NAMESPACE_V1,
+			'/backups/(?P<id>\d+)/onedrive-upload',
+			array(
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'start_onedrive_upload' ),
 				'permission_callback' => array( $this, 'check_permission' ),
 			)
 		);
@@ -164,18 +179,20 @@ class Backups_Controller {
 			return new \WP_Error( 'wpvault_preflight_failed', __( 'WPVault cannot start a backup right now -- see the checks below.', 'wpvault' ), array( 'status' => 422, 'checks' => $preflight['checks'] ) );
 		}
 
-		$type            = $request->get_param( 'type' );
-		$exclude_cache   = (bool) $request->get_param( 'exclude_cache' );
-		$upload_to_drive = (bool) $request->get_param( 'upload_to_drive' ) && Google_Drive::is_connected();
+		$type               = $request->get_param( 'type' );
+		$exclude_cache      = (bool) $request->get_param( 'exclude_cache' );
+		$upload_to_drive    = (bool) $request->get_param( 'upload_to_drive' ) && Google_Drive::is_connected();
+		$upload_to_onedrive = (bool) $request->get_param( 'upload_to_onedrive' ) && One_Drive::is_connected();
 
 		$backup = Backup_Store::create( $type );
 		$job    = Job_Store::create(
 			Job_Store::TYPE_BACKUP,
 			$backup->id,
 			array(
-				'backup_type'     => $type,
-				'exclude_cache'   => $exclude_cache,
-				'upload_to_drive' => $upload_to_drive,
+				'backup_type'        => $type,
+				'exclude_cache'      => $exclude_cache,
+				'upload_to_drive'    => $upload_to_drive,
+				'upload_to_onedrive' => $upload_to_onedrive,
 			)
 		);
 
@@ -229,6 +246,30 @@ class Backups_Controller {
 		}
 
 		$job = Job_Store::create( Job_Store::TYPE_DRIVE_UPLOAD, $backup->id );
+
+		return rest_ensure_response( array( 'job_id' => $job->id ) );
+	}
+
+	public function start_onedrive_upload( \WP_REST_Request $request ) {
+		$backup = Backup_Store::get_by_id( (int) $request->get_param( 'id' ) );
+
+		if ( ! $backup ) {
+			return new \WP_Error( 'wpvault_not_found', __( 'Backup not found.', 'wpvault' ), array( 'status' => 404 ) );
+		}
+
+		if ( Backup_Store::STATUS_VERIFIED !== $backup->status ) {
+			return new \WP_Error( 'wpvault_backup_not_verified', __( 'Only a verified backup can be saved to OneDrive.', 'wpvault' ), array( 'status' => 422 ) );
+		}
+
+		if ( ! One_Drive::is_connected() ) {
+			return new \WP_Error( 'wpvault_onedrive_not_connected', __( 'OneDrive is not connected. Connect it from Settings first.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		if ( Job_Store::find_latest_active() ) {
+			return new \WP_Error( 'wpvault_job_in_progress', __( 'Another backup, import, or restore is already running. Wait for it to finish first.', 'wpvault' ), array( 'status' => 409 ) );
+		}
+
+		$job = Job_Store::create( Job_Store::TYPE_ONEDRIVE_UPLOAD, $backup->id );
 
 		return rest_ensure_response( array( 'job_id' => $job->id ) );
 	}
@@ -551,6 +592,7 @@ class Backups_Controller {
 			'completed_at'     => $backup->completed_at,
 			'download_url'     => $backup->file_path ? Download_Handler::url( $backup->id ) : null,
 			'drive_link'       => $backup->drive_link,
+			'onedrive_link'    => $backup->onedrive_link,
 		);
 	}
 }

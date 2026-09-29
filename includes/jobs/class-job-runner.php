@@ -33,6 +33,7 @@ use WPVault\Diagnostics\Log_Store;
 use WPVault\Diagnostics\Preflight;
 use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
+use WPVault\Storage\One_Drive;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -145,6 +146,10 @@ class Job_Runner {
 			return Drive_Upload_Job::run_phase( $job, $payload, $temp_dir, $time_budget );
 		}
 
+		if ( Job_Store::TYPE_ONEDRIVE_UPLOAD === $job->type ) {
+			return Onedrive_Upload_Job::run_phase( $job, $payload, $temp_dir, $time_budget );
+		}
+
 		switch ( $job->status ) {
 			case Job_Store::STATUS_QUEUED:
 				return self::begin_scanning( $job, $payload, $temp_dir );
@@ -164,13 +169,16 @@ class Job_Runner {
 			case Job_Store::STATUS_VERIFYING:
 				return self::do_verifying( $job, $payload, $temp_dir );
 
-			// Reuses Drive_Upload_Job's own phase methods directly -- an
-			// optional final step tacked onto a backup job (§ Google Drive
-			// integration) when the caller (Scheduled_Backups, or the
-			// browser's "Also save to Google Drive" checkbox) asked for it,
+			// Reuses Drive_Upload_Job's/Onedrive_Upload_Job's own phase
+			// methods directly -- an optional final step (or two, chained)
+			// tacked onto a backup job when the caller (Scheduled_Backups,
+			// or the browser's "Also save to..." checkboxes) asked for it,
 			// entered from do_verifying() below.
 			case Drive_Upload_Job::STATUS_UPLOADING:
 				return self::do_drive_uploading( $job, $payload, $time_budget );
+
+			case Onedrive_Upload_Job::STATUS_UPLOADING:
+				return self::do_onedrive_uploading( $job, $payload, $time_budget );
 
 			default:
 				return $job;
@@ -183,13 +191,36 @@ class Job_Runner {
 	 * verified either way. Unlike Drive_Upload_Job's own standalone jobs
 	 * (where an upload failure correctly IS the whole job failing), this
 	 * catches it and completes the backup job anyway, just without a
-	 * Drive copy.
+	 * Drive copy. On success (or failure), also checks whether a OneDrive
+	 * upload was requested too and chains into that before finishing --
+	 * a backup job can only occupy one phase at a time, so two requested
+	 * cloud copies run one after the other rather than concurrently.
 	 */
 	private static function do_drive_uploading( $job, $payload, $time_budget ) {
 		try {
-			return Drive_Upload_Job::do_uploading( $job, $payload, $time_budget );
+			$result = Drive_Upload_Job::do_uploading( $job, $payload, $time_budget );
 		} catch ( \Throwable $e ) {
 			Log_Store::error( $e->getMessage(), 'wpvault_drive_upload_failed', $job->id );
+
+			return self::begin_onedrive_or_complete( $job, $payload, true );
+		}
+
+		if ( Job_Store::STATUS_COMPLETED === $result->status ) {
+			return self::begin_onedrive_or_complete( $job, Job_Store::get_payload( $result ), false );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Same reasoning as do_drive_uploading() -- a OneDrive upload failure
+	 * must never fail the backup job it's tacked onto.
+	 */
+	private static function do_onedrive_uploading( $job, $payload, $time_budget ) {
+		try {
+			return Onedrive_Upload_Job::do_uploading( $job, $payload, $time_budget );
+		} catch ( \Throwable $e ) {
+			Log_Store::error( $e->getMessage(), 'wpvault_onedrive_upload_failed', $job->id );
 
 			return Job_Store::checkpoint(
 				$job->id,
@@ -197,10 +228,38 @@ class Job_Runner {
 					'status'           => Job_Store::STATUS_COMPLETED,
 					'phase'            => Job_Store::STATUS_COMPLETED,
 					'progress_percent' => 100,
-					'current_item'     => __( 'Backup complete (Google Drive upload failed).', 'wpvault' ),
+					'current_item'     => __( 'Backup complete (OneDrive upload failed).', 'wpvault' ),
 				)
 			);
 		}
+	}
+
+	/**
+	 * The hand-off point between the two optional cloud-upload phases: after
+	 * Drive's phase finishes (or is skipped because it wasn't requested),
+	 * either begin OneDrive's phase or mark the backup job complete.
+	 */
+	private static function begin_onedrive_or_complete( $job, $payload, $earlier_upload_failed ) {
+		if ( ! empty( $payload['upload_to_onedrive'] ) && One_Drive::is_connected() ) {
+			try {
+				return Onedrive_Upload_Job::begin( $job, $payload );
+			} catch ( \Throwable $e ) {
+				Log_Store::error( $e->getMessage(), 'wpvault_onedrive_upload_failed', $job->id );
+				$earlier_upload_failed = true;
+			}
+		}
+
+		return Job_Store::checkpoint(
+			$job->id,
+			array(
+				'status'           => Job_Store::STATUS_COMPLETED,
+				'phase'            => Job_Store::STATUS_COMPLETED,
+				'progress_percent' => 100,
+				'current_item'     => $earlier_upload_failed
+					? __( 'Backup complete (a cloud upload failed).', 'wpvault' )
+					: __( 'Backup complete.', 'wpvault' ),
+			)
+		);
 	}
 
 	private static function needs_files( $payload ) {
@@ -441,30 +500,20 @@ class Job_Runner {
 		Backup_Store::mark_verified( $backup->id );
 		Log_Store::info( __( 'Backup completed and verified.', 'wpvault' ), 'wpvault_backup_verified', $job->id );
 
-		$drive_upload_failed = false;
-
 		if ( ! empty( $payload['upload_to_drive'] ) && Google_Drive::is_connected() ) {
 			try {
 				return Drive_Upload_Job::begin( $job, $payload );
 			} catch ( \Throwable $e ) {
 				// Same reasoning as do_drive_uploading() -- a failure here
-				// must not fail the backup job; just skip the Drive copy.
+				// must not fail the backup job; just skip the Drive copy,
+				// and still try a requested OneDrive copy before finishing.
 				Log_Store::error( $e->getMessage(), 'wpvault_drive_upload_failed', $job->id );
-				$drive_upload_failed = true;
+
+				return self::begin_onedrive_or_complete( $job, $payload, true );
 			}
 		}
 
-		return Job_Store::checkpoint(
-			$job->id,
-			array(
-				'status'           => Job_Store::STATUS_COMPLETED,
-				'phase'            => Job_Store::STATUS_COMPLETED,
-				'progress_percent' => 100,
-				'current_item'     => $drive_upload_failed
-					? __( 'Backup complete (Google Drive upload failed).', 'wpvault' )
-					: __( 'Backup complete.', 'wpvault' ),
-			)
-		);
+		return self::begin_onedrive_or_complete( $job, $payload, false );
 	}
 
 	private static function build_filename( $backup ) {

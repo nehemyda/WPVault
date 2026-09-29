@@ -19,5 +19,6 @@ class Rest_Controller {
 		( new Jobs_Controller() )->register_routes();
 		( new Restore_Controller() )->register_routes();
 		( new Drive_Controller() )->register_routes();
+		( new Onedrive_Controller() )->register_routes();
 	}
 }

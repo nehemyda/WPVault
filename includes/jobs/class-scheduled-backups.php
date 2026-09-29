@@ -18,6 +18,7 @@ namespace WPVault\Jobs;
 use WPVault\Backup\Backup_Store;
 use WPVault\Diagnostics\Preflight;
 use WPVault\Storage\Google_Drive;
+use WPVault\Storage\One_Drive;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -60,9 +61,10 @@ class Scheduled_Backups {
 			'time'            => '03:00',
 			'day_of_week'     => 1, // ISO-8601: 1 = Monday ... 7 = Sunday, matches DateTime's 'N'.
 			'type'            => Backup_Store::TYPE_FULL,
-			'exclude_cache'   => true,
-			'upload_to_drive' => false, // Also save each scheduled backup to Google Drive once it completes.
-			'retention'       => 7, // Most recent N *scheduled* backups kept; 0 = keep them all.
+			'exclude_cache'      => true,
+			'upload_to_drive'    => false, // Also save each scheduled backup to Google Drive once it completes.
+			'upload_to_onedrive' => false, // Also save each scheduled backup to OneDrive once it completes.
+			'retention'          => 7, // Most recent N *scheduled* backups kept; 0 = keep them all.
 			'next_run'        => null, // GMT unix timestamp.
 			'last_run_at'     => null, // GMT unix timestamp.
 			'last_backup_id'  => null,
@@ -185,9 +187,10 @@ class Scheduled_Backups {
 				'time'            => $time,
 				'day_of_week'     => $day_of_week,
 				'type'            => $type,
-				'exclude_cache'   => ! empty( $_POST['wpvault_exclude_cache'] ),
-				'upload_to_drive' => ! empty( $_POST['wpvault_upload_to_drive'] ),
-				'retention'       => $retention,
+				'exclude_cache'      => ! empty( $_POST['wpvault_exclude_cache'] ),
+				'upload_to_drive'    => ! empty( $_POST['wpvault_upload_to_drive'] ),
+				'upload_to_onedrive' => ! empty( $_POST['wpvault_upload_to_onedrive'] ),
+				'retention'          => $retention,
 			)
 		);
 
@@ -247,9 +250,10 @@ class Scheduled_Backups {
 			Job_Store::TYPE_BACKUP,
 			$backup->id,
 			array(
-				'backup_type'     => $settings['type'],
-				'exclude_cache'   => (bool) $settings['exclude_cache'],
-				'upload_to_drive' => ! empty( $settings['upload_to_drive'] ) && Google_Drive::is_connected(),
+				'backup_type'        => $settings['type'],
+				'exclude_cache'      => (bool) $settings['exclude_cache'],
+				'upload_to_drive'    => ! empty( $settings['upload_to_drive'] ) && Google_Drive::is_connected(),
+				'upload_to_onedrive' => ! empty( $settings['upload_to_onedrive'] ) && One_Drive::is_connected(),
 			)
 		);
 

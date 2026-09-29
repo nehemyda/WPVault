@@ -14,6 +14,7 @@ use WPVault\Jobs\Pre_Update_Backups;
 use WPVault\Jobs\Scheduled_Backups;
 use WPVault\Storage\Google_Drive;
 use WPVault\Storage\Local_Storage;
+use WPVault\Storage\One_Drive;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -45,9 +46,9 @@ class Settings_Page {
 					'connecting' => __( 'Starting connection…', 'wpvault' ),
 					'waiting'    => __( 'Waiting for you to approve access…', 'wpvault' ),
 					'connected'  => __( 'Connected! Reloading…', 'wpvault' ),
-					'expired'    => __( 'This code expired. Click Connect Google Drive to get a new one.', 'wpvault' ),
-					'denied'     => __( 'Access was denied. Click Connect Google Drive to try again.', 'wpvault' ),
-					'error'      => __( 'Something went wrong connecting to Google Drive.', 'wpvault' ),
+					'expired'    => __( 'This code expired. Click Connect to get a new one.', 'wpvault' ),
+					'denied'     => __( 'Access was denied. Click Connect to try again.', 'wpvault' ),
+					'error'      => __( 'Something went wrong connecting.', 'wpvault' ),
 				),
 			)
 		);
@@ -84,6 +85,10 @@ class Settings_Page {
 
 			<?php if ( isset( $_GET['wpvault_gdrive_disconnected'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
 				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Google Drive disconnected.', 'wpvault' ); ?></p></div>
+			<?php endif; ?>
+
+			<?php if ( isset( $_GET['wpvault_onedrive_disconnected'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'OneDrive disconnected.', 'wpvault' ); ?></p></div>
 			<?php endif; ?>
 
 			<div class="wpvault-card">
@@ -171,6 +176,17 @@ class Settings_Page {
 									<label>
 										<input type="checkbox" id="wpvault-schedule-upload-to-drive" name="wpvault_upload_to_drive" value="1" <?php checked( ! empty( $schedule['upload_to_drive'] ) ); ?>>
 										<?php esc_html_e( 'Also save each scheduled backup to Google Drive', 'wpvault' ); ?>
+									</label>
+								</td>
+							</tr>
+						<?php endif; ?>
+						<?php if ( One_Drive::is_connected() ) : ?>
+							<tr>
+								<th><label for="wpvault-schedule-upload-to-onedrive"><?php esc_html_e( 'OneDrive', 'wpvault' ); ?></label></th>
+								<td>
+									<label>
+										<input type="checkbox" id="wpvault-schedule-upload-to-onedrive" name="wpvault_upload_to_onedrive" value="1" <?php checked( ! empty( $schedule['upload_to_onedrive'] ) ); ?>>
+										<?php esc_html_e( 'Also save each scheduled backup to OneDrive', 'wpvault' ); ?>
 									</label>
 								</td>
 							</tr>
@@ -374,6 +390,53 @@ class Settings_Page {
 						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
 							<input type="hidden" name="action" value="wpvault_gdrive_disconnect">
 							<?php wp_nonce_field( 'wpvault_gdrive_disconnect' ); ?>
+							<button type="submit" class="button"><?php esc_html_e( 'Disconnect', 'wpvault' ); ?></button>
+						</form>
+					</p>
+				<?php endif; ?>
+			</div>
+
+			<div class="wpvault-card">
+				<h2><?php esc_html_e( 'OneDrive', 'wpvault' ); ?></h2>
+				<p class="description">
+					<?php esc_html_e( 'Save a copy of any verified backup to OneDrive on demand, from the Backups screen. Backups are always created locally first -- OneDrive is just an extra copy you choose to send, never where backups are created.', 'wpvault' ); ?>
+				</p>
+
+				<?php if ( One_Drive::needs_reconnect() ) : ?>
+					<div class="notice notice-warning inline">
+						<p><?php esc_html_e( 'Your OneDrive connection expired or was revoked. Reconnect it below to keep saving backups there.', 'wpvault' ); ?></p>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( ! One_Drive::is_connected() ) : ?>
+					<p>
+						<button type="button" id="wpvault-onedrive-connect-btn" class="button button-primary"><?php esc_html_e( 'Connect OneDrive', 'wpvault' ); ?></button>
+					</p>
+
+					<div id="wpvault-onedrive-device" style="display:none">
+						<p><?php esc_html_e( 'Go to the link below on any device and enter this code to finish connecting:', 'wpvault' ); ?></p>
+						<p><code id="wpvault-onedrive-user-code" style="font-size:1.4em"></code></p>
+						<p><a id="wpvault-onedrive-verification-url" href="#" target="_blank" rel="noopener noreferrer"></a></p>
+					</div>
+					<p id="wpvault-onedrive-device-status" class="description"></p>
+
+					<p class="description">
+						<?php esc_html_e( 'WPVault only ever requests the Files.ReadWrite.AppFolder scope: access to a single app-only folder in your OneDrive, never your existing files.', 'wpvault' ); ?>
+					</p>
+				<?php else : ?>
+					<p>
+						<?php
+						printf(
+							/* translators: %s: the connected Microsoft account's email address */
+							esc_html__( 'Connected as: %s', 'wpvault' ),
+							esc_html( One_Drive::get_connected_email() )
+						);
+						?>
+					</p>
+					<p>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
+							<input type="hidden" name="action" value="wpvault_onedrive_disconnect">
+							<?php wp_nonce_field( 'wpvault_onedrive_disconnect' ); ?>
 							<button type="submit" class="button"><?php esc_html_e( 'Disconnect', 'wpvault' ); ?></button>
 						</form>
 					</p>
