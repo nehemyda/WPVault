@@ -130,7 +130,8 @@ class Database_Exporter {
 				$state['bytes_written'] += $bytes;
 			}
 
-			$rows = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i LIMIT %d OFFSET %d', $table, self::ROW_BATCH_SIZE, $state['row_offset'] ), ARRAY_A );
+			$order_by = self::order_by_clause( $table );
+			$rows     = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM %i{$order_by} LIMIT %d OFFSET %d", $table, self::ROW_BATCH_SIZE, $state['row_offset'] ), ARRAY_A );
 
 			if ( empty( $rows ) ) {
 				gzwrite( $handle, "\n" );
@@ -158,6 +159,32 @@ class Database_Exporter {
 		$state['done'] = $state['table_index'] >= count( $state['tables'] );
 
 		return $state;
+	}
+
+	/**
+	 * Without an ORDER BY, MySQL doesn't guarantee row order is stable
+	 * across separate LIMIT/OFFSET queries -- confirmed by hand: exporting
+	 * a live site's Wordfence blocked-IP log (constantly written to) mid
+	 * table produced a duplicate row across two page reads, which then
+	 * failed to restore with a duplicate-primary-key error. Ordering by the
+	 * table's own primary key makes each page deterministic even while
+	 * rows are being inserted/deleted concurrently on the source site.
+	 * Falls back to no ORDER BY only for the rare table with no primary
+	 * key, where paging was never going to be reliable anyway.
+	 */
+	private static function order_by_clause( $table ) {
+		global $wpdb;
+
+		$columns = $wpdb->get_col(
+			$wpdb->prepare( "SHOW KEYS FROM %i WHERE Key_name = 'PRIMARY'", $table ),
+			4 // Column_name
+		);
+
+		if ( empty( $columns ) ) {
+			return '';
+		}
+
+		return ' ORDER BY `' . implode( '`, `', $columns ) . '`';
 	}
 
 	private static function write_table_header( $handle, $table ) {

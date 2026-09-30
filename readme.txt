@@ -4,7 +4,7 @@ Tags: backup, restore, migration, database, export
 Requires at least: 6.2
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.11
+Stable tag: 0.9.12
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,6 +36,9 @@ WPVault backs up your WordPress database and files into a single versioned `.wpv
 Packages are written to `wp-content/wpvault/backups/`, a directory this plugin protects from direct web access. Removing the plugin does not delete files already stored there -- see `uninstall.php` for exactly what is and isn't removed.
 
 == Changelog ==
+
+= 0.9.12 =
+* Backup: table export now pages through rows in a deterministic order (by primary key) instead of relying on MySQL's default row order, which isn't guaranteed to stay stable across separate paginated queries. On a busy live site, a table being written to while its backup was in progress could have the same row exported twice, which then failed to restore with a duplicate-key error.
 
 = 0.9.11 =
 * Restore: the Old URL/New URL fields in the restore popup now fill in immediately instead of waiting on the same request that re-verifies the entire backup package's checksum -- a real, visible delay on a large backup. The "Create Safety Snapshot & Restore" button now correctly waits for that integrity check to pass before enabling, instead of starting out clickable.
